@@ -1,0 +1,9 @@
+[submodule "deps/glfw"]
+	path = deps/glfw
+	url = https://github.com/glfw/glfw.git
+[submodule "deps/flecs"]
+	path = deps/flecs
+	url = https://github.com/SanderMertens/flecs.git
+[submodule "deps/emscripten"]
+	path = deps/emscripten
+	url = https://github.com/emscripten-core/emscripten.git
