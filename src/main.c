@@ -386,10 +386,6 @@ int main(int argc, char const *argv[])
 
     ECS_SYSTEM(world, render_sprites, EcsOnUpdate, renderer:Camera, renderer:BatchSpriteRenderer, Transform2D, Texture2D);
 
-    ecs_entity_t e = ecs_new_id(world);
-    ecs_set(world, e, Transform2D, {{0.0f, 0.0f}, 0.0f, 1.0f, 0});
-    create_texture("../res/img/trish.png", e);
-
     glfwShowWindow(window);
 
     while (!glfwWindowShouldClose(window))
