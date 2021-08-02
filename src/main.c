@@ -174,6 +174,12 @@ void render_sprites(ecs_iter_t* it)
     Texture2D* texture = ecs_column(it, Texture2D, 4);
     // printf("Use shader %d\n", renderer->shader.programId);
     glUseProgram(renderer->shader.programId);
+    glUniformMatrix4fv(glGetUniformLocation(renderer->shader.programId, "view"), 1, false, camera->view[0]);
+    mat4 proj;
+    int wwidth, wheight;
+    glfwGetWindowSize(window, &wwidth, &wheight);
+    glm_ortho(0.0, wwidth, wheight, 0.0, -1.0, 10.0, proj); // TODO: Window component
+    glUniformMatrix4fv(glGetUniformLocation(renderer->shader.programId, "projection"), 1, false, proj[0]);
     // printf("%d sprite(s)\n", it->count);
     for (int i = 0; i < it->count; i++)
     {
@@ -181,15 +187,9 @@ void render_sprites(ecs_iter_t* it)
         glm_mat4_identity(model);
         vec3 offset = {transform[i].pos[0], transform[i].pos[1], 0.0f};
         glm_translate(model, offset);
-        vec3 scale = {texture->width, texture->height, 1.0};
+        vec3 scale = {texture[i].width, texture[i].height, 1.0};
         glm_scale(model, scale);
         glUniformMatrix4fv(glGetUniformLocation(renderer->shader.programId, "model"), 1, false, model[0]);
-        glUniformMatrix4fv(glGetUniformLocation(renderer->shader.programId, "view"), 1, false, camera->view[0]);
-        mat4 proj;
-        int wwidth, wheight;
-        glfwGetWindowSize(window, &wwidth, &wheight);
-        glm_ortho(0.0, wwidth, wheight, 0.0, -1.0, 10.0, proj); // TODO: Window component
-        glUniformMatrix4fv(glGetUniformLocation(renderer->shader.programId, "projection"), 1, false, proj[0]);
         // vec4 box = {10.0, 0.0, texture->surface->w, texture->surface->h};
         // glUniform4f(glGetUniformLocation(renderer->shader.programId, "box"), 100, 40, 1, 1);
         // glUniform2f(glGetUniformLocation(renderer->shader.programId, "scale"), 1, 1);
@@ -199,6 +199,7 @@ void render_sprites(ecs_iter_t* it)
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, renderer->indexBuffer);
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, (void*) 0);
         glBindVertexArray(0);
+        glBindTexture(GL_TEXTURE_2D, 0);
     }
 }
 
@@ -258,31 +259,33 @@ void create_texture(const char* file, ecs_entity_t entity)
 
     // stbi_image_free(data);
     int bpp;
-    Uint32 Rmask, Gmask, Bmask, Amask;
+    Uint32 Rmask, Gmask, Bmask, Amask; //SDL_PIXELFORMAT_ABGR8888
     SDL_PixelFormatEnumToMasks(SDL_PIXELFORMAT_ABGR8888, &bpp, &Rmask,
     &Gmask, &Bmask, &Amask);
+    unsigned pow_w = nearest_pow2(img->w);
+    unsigned pow_h = nearest_pow2(img->h);
+    size_t pixelCount = sizeof(Uint32) * pow_w * pow_h;
+    void* clearSurface = malloc(pixelCount);
+    memset(clearSurface, 0, pixelCount);
     SDL_Surface *img_rgba8888 = SDL_CreateRGBSurface(0, img->w, img->h, bpp,
                                                      Rmask, Gmask, Bmask, Amask);
     SDL_SetSurfaceAlphaMod(img, 0xFF);
     SDL_SetSurfaceBlendMode(img, SDL_BLENDMODE_NONE);
     SDL_BlitSurface(img, NULL, img_rgba8888, NULL);
-    unsigned pow_w = nearest_pow2(img->w);
-    unsigned pow_h = nearest_pow2(img->h);
     printf("(%d, %d) -> (%d, %d)\n",img->w, img->h, pow_w, pow_h);
     glGenTextures(1, &id);
     glBindTexture(GL_TEXTURE_2D, id);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, pow_w, pow_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, (pow_w - img->w)/2.0, (pow_h - img->h)/2.0, img->w, img->h, GL_RGBA,
-                    GL_UNSIGNED_BYTE, img_rgba8888->pixels);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, pow_w, pow_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, clearSurface);
+    free(clearSurface);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, (pow_w - img->w)/2.0, (pow_h - img->h)/2.0, img->w, img->h, GL_RGBA, GL_UNSIGNED_BYTE, img_rgba8888->pixels);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
     glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    ecs_set(world, entity, Texture2D, {id, pow_w, pow_h});
     SDL_FreeSurface(img);
     SDL_FreeSurface(img_rgba8888);
+    ecs_set(world, entity, Texture2D, {id, pow_w, pow_h});
     // printf("%d\n", glGetError());
-    glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 void window_size_callback(GLFWwindow* window, int width, int height)
@@ -371,9 +374,9 @@ int main(int argc, char const *argv[])
     int width, height;
     glfwGetFramebufferSize(window, &width, &height);
     glViewport(0, 0, width, height);
-    glEnable(GL_BLEND);
     glEnable(GL_TEXTURE_2D);
 
+    glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     renderer = ecs_new_id(world);
@@ -383,9 +386,9 @@ int main(int argc, char const *argv[])
 
     ECS_SYSTEM(world, render_sprites, EcsOnUpdate, renderer:Camera, renderer:BatchSpriteRenderer, Transform2D, Texture2D);
 
-    // ecs_entity_t e = ecs_new_id(world);
-    // ecs_set(world, e, Transform2D, {{0.0f, 0.0f}, 0.0f, 1.0f, 0});
-    // create_texture("../res/img/trish.png", e);
+    ecs_entity_t e = ecs_new_id(world);
+    ecs_set(world, e, Transform2D, {{0.0f, 0.0f}, 0.0f, 1.0f, 0});
+    create_texture("../res/img/trish.png", e);
 
     glfwShowWindow(window);
 
