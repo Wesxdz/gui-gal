@@ -187,8 +187,8 @@ void render_sprites(ecs_iter_t* it)
         glUniformMatrix4fv(glGetUniformLocation(renderer->shader.programId, "view"), 1, false, camera->view[0]);
         mat4 proj;
         int wwidth, wheight;
-        glfwGetWindowSize(window, &wwidth, &wwidth);
-        glm_ortho(0.0, wwidth, wwidth, 0.0, -1.0, 10.0, proj); // TODO: Window component
+        glfwGetWindowSize(window, &wwidth, &wheight);
+        glm_ortho(0.0, wwidth, wheight, 0.0, -1.0, 10.0, proj); // TODO: Window component
         glUniformMatrix4fv(glGetUniformLocation(renderer->shader.programId, "projection"), 1, false, proj[0]);
         // vec4 box = {10.0, 0.0, texture->surface->w, texture->surface->h};
         // glUniform4f(glGetUniformLocation(renderer->shader.programId, "box"), 100, 40, 1, 1);
@@ -268,7 +268,7 @@ void create_texture(const char* file, ecs_entity_t entity)
     SDL_BlitSurface(img, NULL, img_rgba8888, NULL);
     unsigned pow_w = nearest_pow2(img->w);
     unsigned pow_h = nearest_pow2(img->h);
-    printf("(%d, %d)\n", pow_w, pow_h);
+    printf("(%d, %d) -> (%d, %d)\n",img->w, img->h, pow_w, pow_h);
     glGenTextures(1, &id);
     glBindTexture(GL_TEXTURE_2D, id);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, pow_w, pow_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
@@ -282,7 +282,7 @@ void create_texture(const char* file, ecs_entity_t entity)
     SDL_FreeSurface(img);
     SDL_FreeSurface(img_rgba8888);
     // printf("%d\n", glGetError());
-    // glBindTexture(GL_TEXTURE_2D, 0);
+    glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 void window_size_callback(GLFWwindow* window, int width, int height)
@@ -300,7 +300,7 @@ void drop_callback(GLFWwindow* window, int count, const char** paths)
         ECS_COMPONENT(world, Texture2D);
         double xpos, ypos;
         glfwGetCursorPos(window, &xpos, &ypos);
-        printf("(%f, %f)\n", xpos, ypos);
+        // printf("(%f, %f)\n", xpos, ypos);
         create_texture(paths[i], node);
         Texture2D* texture = ecs_get(world, node, Texture2D);
         ECS_COMPONENT(world, Camera);
@@ -356,7 +356,7 @@ int main(int argc, char const *argv[])
     glfwWindowHint(GLFW_RESIZABLE, GL_TRUE);
     glfwWindowHint(GLFW_DECORATED, GL_FALSE);
     glfwWindowHint(GLFW_VISIBLE, GL_FALSE);
-    // glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, 1);
+    glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, 1);
     glfwSetErrorCallback(error_callback);
     window = glfwCreateWindow(640, 480, "Gui Gal", NULL, NULL);
     glfwMakeContextCurrent(window);
