@@ -7,3 +7,12 @@
 [submodule "deps/emscripten"]
 	path = deps/emscripten
 	url = https://github.com/emscripten-core/emscripten.git
+[submodule "deps/cglm"]
+	path = deps/cglm
+	url = https://github.com/recp/cglm.git
+[submodule "deps/deps/SDL_image"]
+	path = deps/SDL_image
+	url = https://github.com/libsdl-org/SDL_image.git
+[submodule "deps/SDL"]
+	path = deps/SDL
+	url = https://github.com/libsdl-org/SDL.git
