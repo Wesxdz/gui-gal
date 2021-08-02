@@ -27,6 +27,13 @@ typedef struct
     unsigned width, height;
 } Texture2D;
 
+#include <gif_lib.h>
+
+typedef struct
+{
+    GifFileType* gif;
+} GifAnimator;
+
 typedef struct
 {
     unsigned int programId;
