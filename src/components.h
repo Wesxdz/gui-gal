@@ -24,7 +24,7 @@ typedef struct
 typedef struct
 {
     GLuint id;
-    SDL_Surface* surface;
+    unsigned width, height;
 } Texture2D;
 
 typedef struct
