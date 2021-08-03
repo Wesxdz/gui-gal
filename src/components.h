@@ -27,11 +27,20 @@ typedef struct
     unsigned width, height;
 } Texture2D;
 
+typedef struct
+{
+    GLuint* ids;
+    int textureCount;
+} MultiTexture2D; // For animated images
+
 #include <gif_lib.h>
 
 typedef struct
 {
     GifFileType* gif;
+    int fps;
+    float progress;
+    size_t frame;
 } GifAnimator;
 
 typedef struct

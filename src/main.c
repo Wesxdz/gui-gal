@@ -173,8 +173,17 @@ void animate_gif(ecs_iter_t* it)
 {
     GifAnimator* animator = ecs_column(it, GifAnimator, 1);
     Texture2D* texture = ecs_column(it, Texture2D, 2);
+    MultiTexture2D* multitexture = ecs_column(it, MultiTexture2D, 3);
     for (int i = 0; i < it->count; i++)
     {
+        animator[i].progress += it->delta_time;
+        const float frameTime = 1.0/animator[i].fps; // TODO: Gif image delay? Manual change knob?
+        while (animator[i].progress > frameTime)
+        {
+            animator[i].progress -= frameTime;
+            animator[i].frame = (animator[i].frame + 1) % multitexture[i].textureCount;
+            texture[i].id = multitexture[i].ids[animator[i].frame];
+        }
         // How to get FPS/frame delays???
         // animator[i].gif->
         // texture->id
@@ -303,6 +312,71 @@ void create_texture(const char* file, ecs_entity_t entity)
     // printf("%d\n", glGetError());
 }
 
+void create_multitexture_from_gif(GifFileType* gif, ecs_entity_t entity)
+{
+    ECS_COMPONENT(world, MultiTexture2D);
+    GLuint* ids = malloc(sizeof(GLuint) * gif->ImageCount);
+    SavedImage* saved = &gif->SavedImages[0];
+    GifImageDesc* desc = &saved->ImageDesc;
+    ColorMapObject* colorMap = desc->ColorMap ? desc->ColorMap : gif->SColorMap;
+    int bpp;
+    Uint32 Rmask, Gmask, Bmask, Amask; //SDL_PIXELFORMAT_ABGR8888
+    SDL_PixelFormatEnumToMasks(SDL_PIXELFORMAT_ABGR8888, &bpp, &Rmask,
+    &Gmask, &Bmask, &Amask);
+    unsigned pow_w = nearest_pow2(desc->Width);
+    unsigned pow_h = nearest_pow2(desc->Height);
+    size_t pixelCount = sizeof(Uint32) * pow_w * pow_h;
+    void* clearSurface = malloc(pixelCount);
+    memset(clearSurface, 0, pixelCount);
+    glGenTextures(gif->ImageCount, ids);
+    // http://giflib.sourceforge.net/whatsinagif/bits_and_bytes.html
+    size_t bufferSize = desc->Width * desc->Height * 4; // 4 bytes per pixel on SDL format surface blit
+    unsigned char* pixelBuffer = malloc(bufferSize);
+    for (int i = 0; i < gif->ImageCount; i++)
+    {
+        saved = &gif->SavedImages[i];
+        desc = &saved->ImageDesc;
+        colorMap = desc->ColorMap ? desc->ColorMap : gif->SColorMap;
+        memset(pixelBuffer, 0xFF, bufferSize);
+        for (int row = 0; row < desc->Height; row++)
+        {
+            for (int col = 0; col < desc->Width; col++)
+            {
+                size_t index = col + row * desc->Width;
+                int c = saved->RasterBits[index];
+                GifColorType rgb = colorMap->Colors[c];
+                pixelBuffer[4 * index] = rgb.Red;
+                pixelBuffer[4 * index + 1] = rgb.Green;
+                pixelBuffer[4 * index + 2] = rgb.Blue;
+            }
+        }
+        SDL_Surface *img_rgba8888 = SDL_CreateRGBSurfaceFrom(pixelBuffer, gif->SWidth, gif->SHeight, 
+        bpp, 4, Rmask, Gmask, Bmask, Amask);
+        SDL_SetSurfaceAlphaMod(img_rgba8888, 0xFF);
+        SDL_SetSurfaceBlendMode(img_rgba8888, SDL_BLENDMODE_NONE);
+        glBindTexture(GL_TEXTURE_2D, ids[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, pow_w, pow_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, clearSurface);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, (pow_w - desc->Width)/2.0, (pow_h - desc->Height)/2.0, gif->SWidth, desc->Width, GL_RGBA, GL_UNSIGNED_BYTE, img_rgba8888->pixels);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+        glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        SDL_FreeSurface(img_rgba8888);
+    }
+    free(pixelBuffer);
+    free(clearSurface);
+    ecs_set(world, entity, MultiTexture2D, {ids, gif->ImageCount});
+    printf("Created multitexture!\n");
+}
+
+void set_initial_multitexture(ecs_iter_t* it)
+{
+    printf("Set initial multitexture!\n");
+    Texture2D* texture = ecs_term(it, Texture2D, 1);
+    MultiTexture2D* multitexture = ecs_term(it, MultiTexture2D, 2);
+    texture->id = multitexture->ids[0];
+}
+
 void window_size_callback(GLFWwindow* window, int width, int height)
 {
     glViewport(0, 0, width, height);
@@ -310,6 +384,7 @@ void window_size_callback(GLFWwindow* window, int width, int height)
 
 void drop_callback(GLFWwindow* window, int count, const char** paths)
 {
+    ECS_COMPONENT(world, GifAnimator);
     for (int i = 0; i < count; i++)
     {
         // struct stat* buf = malloc(sizeof stat);
@@ -323,12 +398,7 @@ void drop_callback(GLFWwindow* window, int count, const char** paths)
         printf("%p:%d\n", (void*)gif, error);
         // printf("Is Gif? %d\n", isGif);
         printf("%p\n", paths[i]);
-        if (isGif)
-        {
-            DGifSlurp(gif); // TODO: Move logic to GifAnimator system
-            printf("Gif has %d images!\n" ,gif->ImageCount);
-        }
-        else if (!isDirectory)
+        if (!isDirectory)
         {
             ecs_entity_t node = ecs_new_id(world);
             ECS_COMPONENT(world, Transform2D);
@@ -336,7 +406,17 @@ void drop_callback(GLFWwindow* window, int count, const char** paths)
             double xpos, ypos;
             glfwGetCursorPos(window, &xpos, &ypos);
             // printf("(%f, %f)\n", xpos, ypos);
-            create_texture(paths[i], node);
+            if (isGif)
+            {
+                DGifSlurp(gif); // TODO: Move logic to GifAnimator system
+                printf("Gif has %d images!\n" ,gif->ImageCount);
+                ecs_set(world, node, Texture2D, {NULL, nearest_pow2(gif->SavedImages[0].ImageDesc.Height), nearest_pow2(gif->SavedImages[0].ImageDesc.Width)});
+                create_multitexture_from_gif(gif, node);
+                ecs_set(world, node, GifAnimator, {gif, 24, 0, 0.0});
+            } else
+            {
+                create_texture(paths[i], node);
+            }
             Texture2D* texture = ecs_get(world, node, Texture2D);
             ECS_COMPONENT(world, Camera);
             Camera* camera = ecs_get(world, renderer, Camera);
@@ -415,9 +495,12 @@ int main(int argc, char const *argv[])
     ECS_COMPONENT(world, Camera);
     ECS_COMPONENT(world, BatchSpriteRenderer);
     ECS_COMPONENT(world, Texture2D);
+    ECS_COMPONENT(world, MultiTexture2D);
+    ECS_COMPONENT(world, GifAnimator);
 
     ECS_SYSTEM(world, setup_batch_renderer, EcsOnSet, BatchSpriteRenderer);
     ECS_SYSTEM(world, setup_camera, EcsOnSet, Camera);
+    ECS_SYSTEM(world, set_initial_multitexture, EcsOnSet, Texture2D, MultiTexture2D);
     // ECS_SYSTEM(world, deallocate_texture, EcsOnRemove, Texture2D);
 
     IMG_Init(IMG_INIT_JPG | IMG_INIT_PNG | IMG_INIT_WEBP);
@@ -456,6 +539,7 @@ int main(int argc, char const *argv[])
     ecs_set(world, renderer, Camera, {});
     ecs_set(world, renderer, BatchSpriteRenderer, {});
 
+    ECS_SYSTEM(world, animate_gif, EcsPreUpdate, GifAnimator, Texture2D, MultiTexture2D);
     ECS_SYSTEM(world, render_sprites, EcsOnUpdate, renderer:Camera, renderer:BatchSpriteRenderer, Transform2D, Texture2D);
 
     glfwShowWindow(window);
