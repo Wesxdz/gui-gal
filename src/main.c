@@ -183,7 +183,7 @@ void animate_gif(ecs_iter_t* it)
         if (block->ByteCount == 4)
         {
             frameTime = (block->Bytes[1] | (block->Bytes[2] << 8))/100.0;
-            printf("%d frame time\n", frameTime);
+            // printf("%d frame time\n", frameTime);
         }
         while (frameTime > 0.0 && animator[i].progress > frameTime)
         {
@@ -191,9 +191,6 @@ void animate_gif(ecs_iter_t* it)
             animator[i].frame = (animator[i].frame + 1) % multitexture[i].textureCount;
             texture[i].id = multitexture[i].ids[animator[i].frame];
         }
-        // How to get FPS/frame delays???
-        // animator[i].gif->
-        // texture->id
     }
 }
 
@@ -319,6 +316,14 @@ void create_texture(const char* file, ecs_entity_t entity)
     // printf("%d\n", glGetError());
 }
 
+enum GIF_DISPOSAL_METHOD
+{
+    UNSPECIFIED,
+    DO_NOT_DISPOSE,
+    RESTORE_TO_BACKGROUND,
+    RESTORE_TO_PREVIOUS,
+};
+
 void create_multitexture_from_gif(GifFileType* gif, ecs_entity_t entity)
 {
     ECS_COMPONENT(world, MultiTexture2D);
@@ -347,28 +352,46 @@ void create_multitexture_from_gif(GifFileType* gif, ecs_entity_t entity)
         ColorMapObject* colorMap = desc->ColorMap ? desc->ColorMap : gif->SColorMap;
         memset(pixelBuffer, 0xFF, bufferSize);
         printf("(%d, %d) are images coords\n", desc->Top, desc->Left);
-        // for (int row = 0; row < baseDesc->Height; row++)
-        // {
-        //     for (int col = 0; col < baseDesc->Width; col++)
-        //     {
-        //         size_t index = col + row * baseDesc->Height;
-        //         int c = baseSaved->RasterBits[index];
-        //         GifColorType rgb = baseColorMap->Colors[c];
-        //         pixelBuffer[4 * index] = rgb.Red;
-        //         pixelBuffer[4 * index + 1] = rgb.Green;
-        //         pixelBuffer[4 * index + 2] = rgb.Blue;
-        //     }
-        // }
+        bool isTransparent = false;
+        unsigned char transparentIndex;
+        if (saved->ExtensionBlockCount > 0)
+        {
+            isTransparent = saved->ExtensionBlocks->Bytes[0] & 0b00000001;
+            transparentIndex = saved->ExtensionBlocks->Bytes[3];
+            printf("Disposal method: %d\n", saved->ExtensionBlocks->Bytes[0] & 0b000111000);
+        }
+        for (int row = 0; row < baseDesc->Height; row++)
+        {
+            for (int col = 0; col < baseDesc->Width; col++)
+            {
+                size_t index = col + row * baseDesc->Width;
+                int c = baseSaved->RasterBits[index];
+                GifColorType rgb = baseColorMap->Colors[c];
+                pixelBuffer[4 * index] = rgb.Red;
+                pixelBuffer[4 * index + 1] = rgb.Green;
+                pixelBuffer[4 * index + 2] = rgb.Blue;
+                if (isTransparent && c == transparentIndex)
+                {
+                    pixelBuffer[4 * index + 3] = 0x00;
+                }
+            }
+        }
         for (int row = 0; row < desc->Height; row++)
         {
             for (int col = 0; col < desc->Width; col++)
             {
+                size_t globalIndex = (desc->Left + col) + (desc->Top + row) * gif->SWidth;
                 size_t index = col + row * desc->Width;
                 int c = saved->RasterBits[index];
                 GifColorType rgb = colorMap->Colors[c];
-                pixelBuffer[4 * index] = rgb.Red;
-                pixelBuffer[4 * index + 1] = rgb.Green;
-                pixelBuffer[4 * index + 2] = rgb.Blue;
+                if (isTransparent && c == transparentIndex)
+                {
+                } else
+                {
+                    pixelBuffer[4 * globalIndex] = rgb.Red;
+                    pixelBuffer[4 * globalIndex + 1] = rgb.Green;
+                    pixelBuffer[4 * globalIndex + 2] = rgb.Blue;
+                }
             }
         }
         printf("%d bits per pixel\n", colorMap->BitsPerPixel);
@@ -379,7 +402,7 @@ void create_multitexture_from_gif(GifFileType* gif, ecs_entity_t entity)
         SDL_SetSurfaceBlendMode(img_rgba8888, SDL_BLENDMODE_NONE);
         glBindTexture(GL_TEXTURE_2D, ids[i]);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, pow_w, pow_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, clearSurface);
-        glTexSubImage2D(GL_TEXTURE_2D, 0, (pow_w - gif->SWidth)/2.0 + desc->Left, (pow_h - gif->SHeight)/2.0 + desc->Top, desc->Width, desc->Height, GL_RGBA, GL_UNSIGNED_BYTE, img_rgba8888->pixels);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, (pow_w - gif->SWidth)/2.0, (pow_h - gif->SHeight)/2.0, gif->SWidth, gif->SHeight, GL_RGBA, GL_UNSIGNED_BYTE, img_rgba8888->pixels);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
         glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -442,7 +465,7 @@ void drop_callback(GLFWwindow* window, int count, const char** paths)
                 ecs_set(world, node, Texture2D, {NULL, nearest_pow2(gif->SWidth), nearest_pow2(gif->SHeight)});
                 create_multitexture_from_gif(gif, node);
                 // printf("%d stbi frame count!\n", z);
-                if (gif->ImageCount > 0)
+                if (gif->ImageCount > 1)
                 {
                     ecs_set(world, node, GifAnimator, {gif, 24, 0.0, 0}); // data, delays, y, comp
                 }
