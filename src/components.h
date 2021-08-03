@@ -41,6 +41,10 @@ typedef struct
     int fps;
     float progress;
     size_t frame;
+
+    // stbi_uc data;
+    // int* delays;
+    // int frameCount, format;
 } GifAnimator;
 
 typedef struct
