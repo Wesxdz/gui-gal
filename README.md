@@ -13,3 +13,4 @@ Roadmap
 * Web editor
 * Cloud project syncing
 * local speech recognition dep
+* local object detection search dep (probably Darknet YOLO)
