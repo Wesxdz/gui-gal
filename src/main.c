@@ -316,21 +316,13 @@ void create_texture(const char* file, ecs_entity_t entity)
     // printf("%d\n", glGetError());
 }
 
-enum GIF_DISPOSAL_METHOD
-{
-    UNSPECIFIED,
-    DO_NOT_DISPOSE,
-    RESTORE_TO_BACKGROUND,
-    RESTORE_TO_PREVIOUS,
-};
-
 void create_multitexture_from_gif(GifFileType* gif, ecs_entity_t entity)
 {
     ECS_COMPONENT(world, MultiTexture2D);
     GLuint* ids = malloc(sizeof(GLuint) * gif->ImageCount);
-    SavedImage* baseSaved = &gif->SavedImages[0];
-    GifImageDesc* baseDesc = &baseSaved->ImageDesc;
-    ColorMapObject* baseColorMap = baseDesc->ColorMap ? baseDesc->ColorMap : gif->SColorMap;
+    SavedImage* prevSaved = &gif->SavedImages[gif->ImageCount - 1];
+    GifImageDesc* prevDesc = &prevSaved->ImageDesc;
+    ColorMapObject* prevColorMap = prevDesc->ColorMap ? prevDesc->ColorMap : gif->SColorMap;
     int bpp;
     Uint32 Rmask, Gmask, Bmask, Amask; //SDL_PIXELFORMAT_ABGR8888
     SDL_PixelFormatEnumToMasks(SDL_PIXELFORMAT_ABGR8888, &bpp, &Rmask,
@@ -344,53 +336,110 @@ void create_multitexture_from_gif(GifFileType* gif, ecs_entity_t entity)
     // http://giflib.sourceforge.net/whatsinagif/bits_and_bytes.html
     size_t bufferSize = gif->SWidth * gif->SHeight * 4; // 4 bytes per pixel on SDL format surface blit
     unsigned char* pixelBuffer = malloc(bufferSize);
+    bool isPrevPixelBufferFilled = false;
+    GifByteType* prevPixelBuffer = malloc(bufferSize);
+    memset(pixelBuffer, 0xFF, bufferSize);
     printf("Gif canvas is (%d, %d)\n", gif->SWidth, gif->SHeight);
     for (int i = 0; i < gif->ImageCount; i++)
     {
         SavedImage* saved = &gif->SavedImages[i];
         GifImageDesc* desc = &saved->ImageDesc;
         ColorMapObject* colorMap = desc->ColorMap ? desc->ColorMap : gif->SColorMap;
-        memset(pixelBuffer, 0xFF, bufferSize);
         printf("(%d, %d) are images coords\n", desc->Top, desc->Left);
         bool isTransparent = false;
         unsigned char transparentIndex;
+        GifByteType disposalMode = 0;
         if (saved->ExtensionBlockCount > 0)
         {
-            isTransparent = saved->ExtensionBlocks->Bytes[0] & 0b00000001;
-            transparentIndex = saved->ExtensionBlocks->Bytes[3];
-            printf("Disposal method: %d\n", saved->ExtensionBlocks->Bytes[0] & 0b000111000);
-        }
-        for (int row = 0; row < baseDesc->Height; row++)
-        {
-            for (int col = 0; col < baseDesc->Width; col++)
+            /*
+            gif89
+            Values :    0 -   No disposal specified. The decoder is
+                                not required to take any action.
+                        1 -   Do not dispose. The graphic is to be left
+                                in place.
+                        2 -   Restore to background color. The area used by the
+                                graphic must be restored to the background color.
+                        3 -   Restore to previous. The decoder is required to
+                                restore the area overwritten by the graphic with
+                                what was there prior to rendering the graphic.
+                        4-7 -    To be defined.
+            */
+            disposalMode = (saved->ExtensionBlocks->Bytes[0] & 0b00011100) >> 2;
+            printf("Disposal method: %u\n", disposalMode);
+            if (disposalMode == 3)
             {
-                size_t index = col + row * baseDesc->Width;
-                int c = baseSaved->RasterBits[index];
-                GifColorType rgb = baseColorMap->Colors[c];
+                isTransparent = prevSaved->ExtensionBlocks->Bytes[0] & 0b00000001;
+                transparentIndex = prevSaved->ExtensionBlocks->Bytes[3];
+            } else
+            {
+                isTransparent = saved->ExtensionBlocks->Bytes[0] & 0b00000001;
+                transparentIndex = saved->ExtensionBlocks->Bytes[3];
+            }
+        }
+        if (disposalMode == 2)
+        {
+            for (int index = 0; index < bufferSize/4; index++)
+            {
+                GifColorType rgb =  colorMap->Colors[gif->SBackGroundColor];
                 pixelBuffer[4 * index] = rgb.Red;
                 pixelBuffer[4 * index + 1] = rgb.Green;
                 pixelBuffer[4 * index + 2] = rgb.Blue;
-                if (isTransparent && c == transparentIndex)
+                if (isTransparent && gif->SBackGroundColor == transparentIndex)
                 {
                     pixelBuffer[4 * index + 3] = 0x00;
                 }
             }
-        }
-        for (int row = 0; row < desc->Height; row++)
+            memset(pixelBuffer, gif->SBackGroundColor, bufferSize);
+        } 
+        else if (disposalMode == 3)
         {
-            for (int col = 0; col < desc->Width; col++)
+            if (!isPrevPixelBufferFilled)
             {
-                size_t globalIndex = (desc->Left + col) + (desc->Top + row) * gif->SWidth;
-                size_t index = col + row * desc->Width;
-                int c = saved->RasterBits[index];
-                GifColorType rgb = colorMap->Colors[c];
-                if (isTransparent && c == transparentIndex)
+                for (int row = 0; row < prevDesc->Height; row++)
                 {
-                } else
+                    for (int col = 0; col < prevDesc->Width; col++)
+                    {
+                        size_t globalIndex = (prevDesc->Left + col) + (prevDesc->Top + row) * gif->SWidth;
+                        size_t index = col + row * prevDesc->Width;
+                        int c = prevSaved->RasterBits[index];
+                        GifColorType rgb = prevColorMap->Colors[c];
+                        prevPixelBuffer[4 * globalIndex] = rgb.Red;
+                        prevPixelBuffer[4 * globalIndex + 1] = rgb.Green;
+                        prevPixelBuffer[4 * globalIndex + 2] = rgb.Blue;
+                        if (isTransparent && c == transparentIndex)
+                        {
+                            prevPixelBuffer[4 * globalIndex + 3] = 0x00;
+                        } else
+                        {
+                            prevPixelBuffer[4 * globalIndex + 3] = 0xFF;
+                        }
+                    }
+                }
+                isPrevPixelBufferFilled = true;
+            }
+            memcpy(pixelBuffer, prevPixelBuffer, bufferSize);
+        }
+        
+        if (disposalMode != 3)
+        {
+            for (int row = 0; row < desc->Height; row++)
+            {
+                for (int col = 0; col < desc->Width; col++)
                 {
-                    pixelBuffer[4 * globalIndex] = rgb.Red;
-                    pixelBuffer[4 * globalIndex + 1] = rgb.Green;
-                    pixelBuffer[4 * globalIndex + 2] = rgb.Blue;
+                    size_t globalIndex = (desc->Left + col) + (desc->Top + row) * gif->SWidth;
+                    size_t index = col + row * desc->Width;
+                    int c = saved->RasterBits[index];
+                    GifColorType rgb = colorMap->Colors[c];
+                    if (isTransparent && c == transparentIndex)
+                    {
+                        pixelBuffer[4 * globalIndex + 3] = 0x00;
+                    } else
+                    {
+                        pixelBuffer[4 * globalIndex] = rgb.Red;
+                        pixelBuffer[4 * globalIndex + 1] = rgb.Green;
+                        pixelBuffer[4 * globalIndex + 2] = rgb.Blue;
+                        pixelBuffer[4 * globalIndex + 3] = 0xFF;
+                    }
                 }
             }
         }
@@ -407,9 +456,14 @@ void create_multitexture_from_gif(GifFileType* gif, ecs_entity_t entity)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
         glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        memcpy(prevPixelBuffer, pixelBuffer, bufferSize);
+        prevSaved = &gif->SavedImages[i];
+        prevDesc = &prevSaved->ImageDesc;
+        prevColorMap = prevDesc->ColorMap ? prevDesc->ColorMap : gif->SColorMap;
         SDL_FreeSurface(img_rgba8888);
     }
     free(pixelBuffer);
+    free(prevPixelBuffer);
     free(clearSurface);
     ecs_set(world, entity, MultiTexture2D, {ids, gif->ImageCount});
     printf("Created multitexture!\n");
