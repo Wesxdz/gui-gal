@@ -340,6 +340,7 @@ void create_multitexture_from_gif(GifFileType* gif, ecs_entity_t entity)
     GifByteType* pixelBuffer2 = malloc(bufferSize);
     bool isPrevPixelBufferFilled = false;
     memset(pixelBuffer, 0xFF, bufferSize);
+    memset(pixelBuffer2, 0x00, bufferSize);
     printf("Gif canvas is (%d, %d)\n", gif->SWidth, gif->SHeight);
     int shiftBufferCount = 0;
     for (int i = 0; i < gif->ImageCount; i++)
@@ -524,8 +525,8 @@ void create_multitexture_from_gif(GifFileType* gif, ecs_entity_t entity)
         glTexSubImage2D(GL_TEXTURE_2D, 0, (pow_w - gif->SWidth)/2.0, (pow_h - gif->SHeight)/2.0, gif->SWidth, gif->SHeight, GL_RGBA, GL_UNSIGNED_BYTE, img_rgba8888->pixels);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-        glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         memmove(pixelBuffer2, pixelBuffer1, bufferSize);
         memmove(pixelBuffer1, pixelBuffer, bufferSize);
         shiftBufferCount += 2;
@@ -695,7 +696,7 @@ int main(int argc, char const *argv[])
     glfwWindowHint(GLFW_RESIZABLE, GL_TRUE);
     glfwWindowHint(GLFW_DECORATED, GL_FALSE);
     glfwWindowHint(GLFW_VISIBLE, GL_FALSE);
-    glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, 1);
+    // glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, 1);
     glfwSetErrorCallback(error_callback);
     window = glfwCreateWindow(640, 480, "Gui Gal", NULL, NULL);
     glfwMakeContextCurrent(window);
