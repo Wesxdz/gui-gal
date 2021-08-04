@@ -1,7 +1,6 @@
 ### ***Gui Gal*** is your open source virtual companion for action-centric perception, design, and engineering.
 
 Roadmap
-* Gif disposal modes
 * Universal symbol interface (select, deselect, move, delete)
 * Visual symbol interface (scale, round corners, custom shader composition)
 * Symbol graph persistence (saving and loading groups of components and systems)
@@ -14,3 +13,4 @@ Roadmap
 * Cloud project syncing
 * local speech recognition dep
 * local object detection search dep (probably Darknet YOLO)
+* ECS port of FreeCAD
