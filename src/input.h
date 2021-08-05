@@ -3,7 +3,6 @@
 
 #include <flecs/flecs.h>
 #include <GLFW/glfw3.h>
-#include "shared.h"
 
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods);
 

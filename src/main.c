@@ -8,9 +8,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-// #define STB_IMAGE_IMPLEMENTATION
-// #include <stb_image.h>
-
 #include "components.h"
 
 // flecs modules
@@ -198,14 +195,9 @@ void AnimateGif(ecs_iter_t* it)
     }
 }
 
-void test_remove(ecs_iter_t* it)
-{
-    printf("Removed!\n");
-}
-
 void RenderSprites(ecs_iter_t* it)
 {
-    printf("%d sprite(s)\n", it->count);
+    // printf("%d sprite(s)\n", it->count);
     Camera* camera = ecs_term(it, Camera, 1);
     BatchSpriteRenderer* renderer = ecs_term(it, BatchSpriteRenderer, 2);
     Transform2D* transform = ecs_term(it, Transform2D, 3);
@@ -282,7 +274,7 @@ unsigned nearest_pow2(int length)
     return pow(2,ceil(log(length)/log(2)));
 }
 
-void create_texture(const char* file, ecs_entity_t entity)
+void create_texture(const char* file, ecs_entity_t entity, unsigned int* twidth, unsigned int* theight)
 {
     GLuint id;
     SDL_Surface* img = IMG_Load(file);
@@ -313,6 +305,7 @@ void create_texture(const char* file, ecs_entity_t entity)
     SDL_FreeSurface(img);
     SDL_FreeSurface(img_rgba8888);
     ecs_set(world, entity, Texture2D, {id, pow_w, pow_h, img->w, img->h});
+    *twidth = img->w; *theight = img->h;
 }
 
 void create_multitexture_from_gif(GifFileType* gif, ecs_entity_t entity)
@@ -571,18 +564,21 @@ void LoadDroppedFiles(ecs_iter_t* it)
         printf("%p:%d\n", (void*)gif, error);
         // printf("Is Gif? %d\n", isGif);
         printf("%p\n", drop->paths[i]);
+
         if (!isDirectory)
         {
             ecs_entity_t node = ecs_new_id(world);
             double xpos, ypos;
             glfwGetCursorPos(window, &xpos, &ypos);
+            unsigned int twidth, theight;
             if (isGif)
             {
                 DGifSlurp(gif); // TODO: Move logic to GifAnimator system
                 printf("Gif has %d images!\n" ,gif->ImageCount);
-                ecs_set(world, node, Texture2D, {0, nearest_pow2(gif->SWidth), nearest_pow2(gif->SHeight), gif->SWidth, gif->SHeight});
+                ecs_set(world, node, Texture2D, {NULL, nearest_pow2(gif->SWidth), nearest_pow2(gif->SHeight), gif->SWidth, gif->SHeight});
                 create_multitexture_from_gif(gif, node);
                 // printf("%d stbi frame count!\n", z);
+                twidth = gif->SWidth; theight = gif->SHeight;
                 if (gif->ImageCount > 1)
                 {
                     ecs_set(world, node, GifAnimator, {gif, 24, 0.0, 0}); // data, delays, y, comp
@@ -590,9 +586,8 @@ void LoadDroppedFiles(ecs_iter_t* it)
             } else
             {
                 printf("Loading %s\n", drop->paths[i]);
-                create_texture(drop->paths[i], node);
+                create_texture(drop->paths[i], node, &twidth, &theight);
             }
-            const Texture2D* texture = ecs_get(world, node, Texture2D);
             const Camera* camera = ecs_get(world, renderer, Camera);
             vec4 t;
             mat4 r;
@@ -604,11 +599,11 @@ void LoadDroppedFiles(ecs_iter_t* it)
             vec2 translate;
             glm_vec2_copy(camera->view[3], translate);
             glm_vec2_mul(translate, inverse_s, translate);
-            vec2 screen = {xpos - texture->width/2.0, ypos - texture->height/2};
+            vec2 screen = {xpos - twidth/2.0, ypos - theight/2};
             vec2 position;
             glm_vec2_sub(screen, translate, position);
             ecs_set(world, node, Transform2D, {{position[0], position[1]}, 0.0f, 1.0f, 0});
-            ecs_set(world, node, LocalFile, {drop->paths[i]});
+            // ecs_set(world, node, LocalFile, {drop->paths[i]});
         }
     }
     free(drop->paths); // TODO: Move to another system and free unused paths
@@ -625,6 +620,60 @@ void drop_callback(GLFWwindow* window, int count, const char** paths)
     }
     ecs_set(world, input, EventDropFiles, {window, count, savedPaths});
     ecs_set_pair(world, input, ConsumeEvent, ecs_id(EventDropFiles), {});
+
+    // for (int i = 0; i < count; i++)
+    // {
+    //     // struct stat* buf = malloc(sizeof stat);
+    //     // stat(paths[i], buf);
+    //     //  = S_ISDIR(buf->st_mode);
+    //      bool isDirectory = false;
+    //     // free(buf);
+    //     int error;
+    //     GifFileType* gif = DGifOpenFileName(paths[i], &error);
+    //     bool isGif = gif != NULL;
+    //     printf("%p:%d\n", (void*)gif, error);
+    //     // printf("Is Gif? %d\n", isGif);
+    //     printf("%p\n", paths[i]);
+    //     if (!isDirectory)
+    //     {
+    //         ecs_entity_t node = ecs_new_id(world);
+    //         double xpos, ypos;
+    //         glfwGetCursorPos(window, &xpos, &ypos);
+    //         if (isGif)
+    //         {
+    //             DGifSlurp(gif); // TODO: Move logic to GifAnimator system
+    //             printf("Gif has %d images!\n" ,gif->ImageCount);
+    //             ecs_set(world, node, Texture2D, {NULL, nearest_pow2(gif->SWidth), nearest_pow2(gif->SHeight), gif->SWidth, gif->SHeight});
+    //             create_multitexture_from_gif(gif, node);
+    //             // printf("%d stbi frame count!\n", z);
+    //             if (gif->ImageCount > 1)
+    //             {
+    //                 ecs_set(world, node, GifAnimator, {gif, 24, 0.0, 0}); // data, delays, y, comp
+    //             }
+    //         } else
+    //         {
+    //             printf("Loading %s\n", paths[i]);
+    //             create_texture(paths[i], node, NULL, NULL);
+    //         }
+    //         const Texture2D* texture = ecs_get(world, node, Texture2D);
+    //         const Camera* camera = ecs_get(world, renderer, Camera);
+    //         vec4 t;
+    //         mat4 r;
+    //         vec3 s;
+    //         glm_decompose(camera->view, t, r, s);
+    //         vec3 inverse_s = {1.0/s[0], 1.0/s[1], 1.0/s[2]};
+    //         xpos *= inverse_s[0];
+    //         ypos *= inverse_s[1];
+    //         vec2 translate;
+    //         glm_vec2_copy(camera->view[3], translate);
+    //         glm_vec2_mul(translate, inverse_s, translate);
+    //         vec2 screen = {xpos - texture->width/2.0, ypos - texture->height/2};
+    //         vec2 position;
+    //         glm_vec2_sub(screen, translate, position);
+    //         ecs_set(world, node, Transform2D, {{position[0], position[1]}, 0.0f, 1.0f, 0});
+    //         // ecs_set(world, node, LocalFile, {drop->paths[i]});
+    //     }
+    // }
 }
 
 void ConsumeEvents(ecs_iter_t* it)
@@ -889,11 +938,11 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, GrabMoveCamera, EcsPreUpdate, renderer:Camera, input:EventMouseMotion);
     ECS_SYSTEM(world, ScrollZoomCamera, EcsPreUpdate, renderer:Camera, input:EventScroll);
     ECS_SYSTEM(world, CameraCalculateView, EcsOnUpdate, Camera);
-    ECS_SYSTEM(world, SelectVisualSymbol, EcsOnUpdate, renderer:Camera, input:EventMouseButton, Transform2D, Texture2D);
-    ECS_SYSTEM(world, MoveGrabbedTransforms, EcsOnUpdate, renderer:Camera, input:EventMouseMotion, Transform2D, Grabbed);
+    // ECS_SYSTEM(world, SelectVisualSymbol, EcsOnUpdate, renderer:Camera, input:EventMouseButton, Transform2D, Texture2D);
+    // ECS_SYSTEM(world, MoveGrabbedTransforms, EcsOnUpdate, renderer:Camera, input:EventMouseMotion, Transform2D, Grabbed);
     ECS_SYSTEM(world, ConsumeEvents, EcsPostFrame, (ConsumeEvent, *));
-    ECS_SYSTEM(world, UnGrab, EcsOnUpdate, input:EventMouseButton);
-    ECS_SYSTEM(world, LoadDroppedFiles, EcsOnUpdate, input:EventDropFiles);
+    // ECS_SYSTEM(world, UnGrab, EcsOnUpdate, input:EventMouseButton);
+    ECS_SYSTEM(world, LoadDroppedFiles, EcsOnSet, EventDropFiles);
 
     glfwShowWindow(window);
 
