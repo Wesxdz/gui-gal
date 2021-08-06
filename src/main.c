@@ -300,8 +300,8 @@ void create_texture(const char* file, ecs_entity_t entity, unsigned int* twidth,
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, img->w, img->h, GL_RGBA, GL_UNSIGNED_BYTE, img_rgba8888->pixels);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-    glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     SDL_FreeSurface(img);
     SDL_FreeSurface(img_rgba8888);
     ecs_set(world, entity, Texture2D, {id, pow_w, pow_h, img->w, img->h});
@@ -751,9 +751,12 @@ void UnGrab(ecs_iter_t* it)
     EventMouseButton* mouse = ecs_term(it, EventMouseButton, 1);
     if (mouse->button == GLFW_MOUSE_BUTTON_LEFT && mouse->action == GLFW_RELEASE)
     {
-        ecs_bulk_remove_type(it->world, ecs_type(Grabbed), &(ecs_filter_t){
-            .include = ecs_type(Grabbed)
-        });
+        ecs_defer_begin(it->world);
+        for (int32_t i = 0; i < it->count; i++)
+        {
+            ecs_remove(it->world, it->entities[i], Grabbed);
+        }
+        ecs_defer_end(it->world);
     }
 }
 
@@ -782,40 +785,51 @@ void SelectVisualSymbol(ecs_iter_t* it)
         uint32_t potentialSelections[it->count];
         size_t selectedCount = 0;
         bool grabSelected = false;
+        // ecs_defer_begin(world);
         for (int32_t i = 0; i < it->count; i++)
         {
             vec2 dist = {0.0f, 0.0f};
             glm_vec2_sub(worldPos, transform[i].pos, dist);
             printf("Dist: (%f, %f)\n", dist[0], dist[1]);
-            if (dist[0] > 0.0 && dist[0] <= texture[i].width &&
+            if (ecs_has(it->world, it->entities[i], Selected))
+            {
+                potentialSelections[selectedCount] = i;
+                selectedCount++;
+                grabSelected = true;
+            }
+            else if (dist[0] > 0.0 && dist[0] <= texture[i].width &&
             dist[1] > 0.0 && dist[1] <= texture[i].height)
             {
                 potentialSelections[selectedCount] = i;
                 selectedCount++;
                 printf("Selected visual symbol! (%f, %f)\n", dist[0], dist[1]);
+                ecs_add(it->world, it->entities[i], Grabbed);
             }
         }
-        ecs_defer_begin(world);
-        if (!selectAdd)
-        {
-            if (grabSelected)
-            {
-                ecs_bulk_remove_type(it->world, ecs_type(Selected), &(ecs_filter_t){
-                    .include = ecs_type(Selected)
-                });
-            } else
-            {
-                ecs_bulk_remove_type(it->world, ecs_type(Selected), &(ecs_filter_t){
-                    .include = ecs_type(Selected)
-                });
-            }
-        }
-        for (size_t i = 0; i < selectedCount; i++)
-        {
-            ecs_add(world, it->entities[potentialSelections[i]], Selected);
-            ecs_add(world, it->entities[potentialSelections[i]], Grabbed);
-        }
-        ecs_defer_end(world);
+        // if (selectAdd)
+        // {
+        //     for (size_t i = 0; i < selectedCount; i++)
+        //     {
+        //         ecs_add(it->world, it->entities[potentialSelections[i]], Selected);
+        //     }
+        // } else
+        // {
+        //     if (grabSelected)
+        //     {
+        //         for (size_t i = 0; i < selectedCount; i++)
+        //         {
+        //             ecs_add(it->world, it->entities[potentialSelections[i]], Grabbed);
+        //         }
+        //     } else
+        //     { 
+        //         // Deselect all currently selected
+        //         for (size_t i = 0; i < selectedCount; i++)
+        //         {
+        //             ecs_add(it->world, it->entities[potentialSelections[i]], Selected);
+        //             ecs_add(it->world, it->entities[potentialSelections[i]], Grabbed);
+        //         }
+        //     }
+        // }
     }
     
 }
@@ -938,10 +952,10 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, GrabMoveCamera, EcsPreUpdate, renderer:Camera, input:EventMouseMotion);
     ECS_SYSTEM(world, ScrollZoomCamera, EcsPreUpdate, renderer:Camera, input:EventScroll);
     ECS_SYSTEM(world, CameraCalculateView, EcsOnUpdate, Camera);
-    // ECS_SYSTEM(world, SelectVisualSymbol, EcsOnUpdate, renderer:Camera, input:EventMouseButton, Transform2D, Texture2D);
-    // ECS_SYSTEM(world, MoveGrabbedTransforms, EcsOnUpdate, renderer:Camera, input:EventMouseMotion, Transform2D, Grabbed);
+    ECS_SYSTEM(world, SelectVisualSymbol, EcsOnUpdate, renderer:Camera, input:EventMouseButton, Transform2D, Texture2D);
+    ECS_SYSTEM(world, MoveGrabbedTransforms, EcsOnUpdate, renderer:Camera, input:EventMouseMotion, Transform2D, Grabbed);
     ECS_SYSTEM(world, ConsumeEvents, EcsPostFrame, (ConsumeEvent, *));
-    // ECS_SYSTEM(world, UnGrab, EcsOnUpdate, input:EventMouseButton);
+    ECS_SYSTEM(world, UnGrab, EcsOnUpdate, input:EventMouseButton, Grabbed);
     ECS_SYSTEM(world, LoadDroppedFiles, EcsOnSet, EventDropFiles);
 
     glfwShowWindow(window);
