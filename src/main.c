@@ -267,6 +267,8 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 {
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
         glfwSetWindowShouldClose(window, GLFW_TRUE);
+    ecs_set(world, input, EventKey, {window, key, scancode, action, mods});
+    ecs_set_pair(world, input, ConsumeEvent, ecs_id(EventKey), {});
 }
 
 unsigned nearest_pow2(int length)
@@ -398,7 +400,7 @@ void create_multitexture_from_gif(GifFileType* gif, ecs_entity_t entity)
             {
                 for (int col = 0; col < desc->Width; col++)
                 {
-                    size_t globalIndex = (desc->Left + col) + (desc->Top + row) * gif->SWidth;
+		    size_t globalIndex = (desc->Left + col) + (desc->Top + row) * gif->SWidth;
                     size_t index = col + row * desc->Width;
                     int c = saved->RasterBits[index];
                     GifColorType rgb = colorMap->Colors[c];
@@ -687,6 +689,20 @@ void ConsumeEvents(ecs_iter_t* it)
     }
 }
 
+void DeleteSelected(ecs_iter_t* it)
+{
+  EventKey* event = ecs_term(it, EventKey, 1);
+  ecs_defer_begin(it->world);
+  if (event->key == GLFW_KEY_DELETE && event->action == GLFW_PRESS) {
+    for (int32_t i = 0; i < it->count; i++)
+      {
+          ecs_delete(it->world, it->entities[i]);
+      }
+  }
+  ecs_defer_end(it->world);
+}
+  
+
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 {
     ecs_set(world, input, EventMouseButton, {window, button, action, mods});
@@ -722,7 +738,6 @@ void MoveGrabbedTransforms(ecs_iter_t* it)
     Transform2D* transform = ecs_term(it, Transform2D, 3);
     for (int32_t i = 0; i < it->count; i++)
     {
-        printf("Move grabbed!\n");
         vec2 worldPosLast;
         vec2 worldPosNow;
         vec2 motionPosLast;
@@ -731,7 +746,7 @@ void MoveGrabbedTransforms(ecs_iter_t* it)
         screen_to_world(camera->view, motion->pos, worldPosNow);
         screen_to_world(camera->view, motionPosLast, worldPosLast);
         glm_vec2_sub(worldPosNow, worldPosLast, worldDelta);
-        glm_vec2_add(transform->pos, worldDelta, transform->pos);
+        glm_vec2_add(transform[i].pos, worldDelta, transform[i].pos);
     }
 }
 
@@ -760,78 +775,102 @@ void UnGrab(ecs_iter_t* it)
     }
 }
 
-void SelectVisualSymbol(ecs_iter_t* it)
+void SelectVisualSymbolQuery(ecs_iter_t* it)
 {
     Camera* camera = ecs_term(it, Camera, 1);
     EventMouseButton* event = ecs_term(it, EventMouseButton, 2);
+
     if (event->button == GLFW_MOUSE_BUTTON_LEFT && event->action == GLFW_PRESS)
     {
-        Transform2D* transform = ecs_term(it, Transform2D, 3);
-        Texture2D* texture = ecs_term(it, Texture2D, 4);
-        
+        // Visual symbol archetypes systems have separate iterators! 
+        ecs_query_t* query = ecs_query_new(world, "Transform2D, Texture2D");
+        ecs_iter_t qIt = ecs_query_iter(query);
+
+        size_t visualSymbolCount = 0;
+        while (ecs_query_next(&qIt)) 
+        {
+            visualSymbolCount += qIt.count;
+        }
+        ecs_entity_t curSelectedNodes[visualSymbolCount];
+        size_t curSelectedCount = 0;
+        ecs_entity_t toSelectNodes[visualSymbolCount];
+        size_t toSelectCount = 0;
+        qIt = ecs_query_iter(query);
         double xpos, ypos;
         glfwGetCursorPos(event->window, &xpos, &ypos);
         vec2 screenPos = {xpos, ypos};
         vec2 worldPos;
         screen_to_world(camera->view, screenPos, worldPos);
-        // remove Selected from all components
         int right = glfwGetKey(event->window, GLFW_KEY_RIGHT_SHIFT);
         int left = glfwGetKey(event->window, GLFW_KEY_LEFT_SHIFT);
+
+        int32_t past = 0;
         bool selectAdd = false;
-        if (right == GLFW_PRESS || left == GLFW_PRESS)
-        {
-            selectAdd = true;
-        }
-        uint32_t potentialSelections[it->count];
-        size_t selectedCount = 0;
         bool grabSelected = false;
-        // ecs_defer_begin(world);
-        for (int32_t i = 0; i < it->count; i++)
+        while (ecs_query_next(&qIt)) 
         {
-            vec2 dist = {0.0f, 0.0f};
-            glm_vec2_sub(worldPos, transform[i].pos, dist);
-            printf("Dist: (%f, %f)\n", dist[0], dist[1]);
-            if (ecs_has(it->world, it->entities[i], Selected))
+            Transform2D* transform = ecs_term(&qIt, Transform2D, 1);
+            Texture2D* texture = ecs_term(&qIt, Texture2D, 2);
+
+            if (right == GLFW_PRESS || left == GLFW_PRESS)
             {
-                potentialSelections[selectedCount] = i;
-                selectedCount++;
-                grabSelected = true;
+                selectAdd = true;
             }
-            else if (dist[0] > 0.0 && dist[0] <= texture[i].width &&
-            dist[1] > 0.0 && dist[1] <= texture[i].height)
+            for (int32_t i = 0; i < qIt.count; i++)
             {
-                potentialSelections[selectedCount] = i;
-                selectedCount++;
-                printf("Selected visual symbol! (%f, %f)\n", dist[0], dist[1]);
-                ecs_add(it->world, it->entities[i], Grabbed);
+                vec2 dist = {0.0f, 0.0f};
+                glm_vec2_sub(worldPos, transform[i].pos, dist);
+                bool isSelected = ecs_has(qIt.world, qIt.entities[i], Selected);
+                if (isSelected)
+                {
+                    curSelectedNodes[curSelectedCount] = qIt.entities[i];
+                    curSelectedCount++;
+                }
+                if (dist[0] > 0.0 && dist[0] <= texture[i].width &&
+                dist[1] > 0.0 && dist[1] <= texture[i].height)
+                {
+                    if (isSelected)
+                    {
+                        grabSelected = true;
+                    }
+                    toSelectNodes[toSelectCount] = qIt.entities[i];
+                    toSelectCount++;
+                }
+            }
+            past += qIt.count;
+        }
+
+        if (selectAdd)
+        {
+            ecs_add(it->world, toSelectNodes[0], Selected);
+        } else
+        {
+            if (grabSelected)
+            {
+                for (int32_t i = 0; i < curSelectedCount; i++)
+                {
+                    ecs_add(it->world, curSelectedNodes[i], Grabbed);
+                }
+            } else
+            { 
+                if (toSelectCount > 0)
+                {
+                    for (int32_t i = 0; i < curSelectedCount; i++)
+                    {
+                        ecs_remove(it->world, curSelectedNodes[i], Selected);
+                    }
+                    ecs_add(it->world, toSelectNodes[0], Selected);
+                    ecs_add(it->world, toSelectNodes[0], Grabbed);
+                } else
+                {
+                    for (int32_t i = 0; i < curSelectedCount; i++)
+                    {
+                        ecs_remove(it->world, curSelectedNodes[i], Selected);
+                    }
+                }
             }
         }
-        // if (selectAdd)
-        // {
-        //     for (size_t i = 0; i < selectedCount; i++)
-        //     {
-        //         ecs_add(it->world, it->entities[potentialSelections[i]], Selected);
-        //     }
-        // } else
-        // {
-        //     if (grabSelected)
-        //     {
-        //         for (size_t i = 0; i < selectedCount; i++)
-        //         {
-        //             ecs_add(it->world, it->entities[potentialSelections[i]], Grabbed);
-        //         }
-        //     } else
-        //     { 
-        //         // Deselect all currently selected
-        //         for (size_t i = 0; i < selectedCount; i++)
-        //         {
-        //             ecs_add(it->world, it->entities[potentialSelections[i]], Selected);
-        //             ecs_add(it->world, it->entities[potentialSelections[i]], Grabbed);
-        //         }
-        //     }
-        // }
     }
-    
 }
 
 void screen_to_world(mat4* view, vec2 screenCoords, vec2 world)
@@ -849,7 +888,6 @@ void screen_to_world(mat4* view, vec2 screenCoords, vec2 world)
     glm_mat4_inv(vp, vp);
     vec4 worldPos;
     glm_mat4_mulv(vp, screenNormalized, worldPos);
-    printf("(%f, %f)\n", worldPos[0], worldPos[1]);
     world[0] = worldPos[0];
     world[1] = worldPos[1];
 }
@@ -864,6 +902,19 @@ void ScrollZoomCamera(ecs_iter_t* it)
     Camera* camera = ecs_term(it, Camera, 1);
     EventScroll* scroll = ecs_term(it, EventScroll, 2);
     camera->scale = camera->scale + scroll->yoffset * 0.05;
+    // Zoom towards cursor position as edge
+    double xpos, ypos;
+    glfwGetCursorPos(scroll->window, &xpos, &ypos);
+
+    int wwidth, wheight;
+    glfwGetWindowSize(scroll->window, &wwidth, &wheight);
+    
+    vec2 cursorScreenPos = {wwidth/2.0 - xpos, wheight/2.0 - ypos};
+    vec2 cursorWorldPos;
+    screen_to_world(camera->view, cursorScreenPos, cursorWorldPos);
+    vec2 camScale = {camera->scale * 0.025, camera->scale * 0.025};
+    glm_vec2_mul(cursorScreenPos, camScale, cursorScreenPos);
+    glm_vec2_add(camera->pos, cursorScreenPos, camera->pos);
 }
 
 double lastXPos, lastYPos;
@@ -901,6 +952,9 @@ int main(int argc, char const *argv[])
     ECS_COMPONENT_DEFINE(world, EventMouseMotion);
     ECS_COMPONENT_DEFINE(world, EventScroll);
     ECS_COMPONENT_DEFINE(world, EventDropFiles);
+    ECS_COMPONENT_DEFINE(world, DragSelector);
+    ECS_COMPONENT_DEFINE(world, NineSlice);
+    ECS_COMPONENT_DEFINE(world, EventKey);
     ECS_TAG_DEFINE(world, Selected);
     ECS_TAG_DEFINE(world, Grabbed);
     
@@ -911,7 +965,6 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, SetupCamera, EcsOnSet, Camera);
     ECS_SYSTEM(world, SetInitialMultitexture, EcsOnSet, Texture2D, MultiTexture2D);
     ECS_SYSTEM(world, deallocate_texture, EcsOnRemove, Texture2D);
-
     IMG_Init(IMG_INIT_JPG | IMG_INIT_PNG | IMG_INIT_WEBP);
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
@@ -939,7 +992,6 @@ int main(int argc, char const *argv[])
     glfwGetFramebufferSize(window, &width, &height);
     glViewport(0, 0, width, height);
     glEnable(GL_TEXTURE_2D);
-
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -949,15 +1001,17 @@ int main(int argc, char const *argv[])
 
     ECS_SYSTEM(world, AnimateGif, EcsPreUpdate, GifAnimator, Texture2D, MultiTexture2D);
     ECS_SYSTEM(world, RenderSprites, EcsOnUpdate, renderer:Camera, renderer:BatchSpriteRenderer, Transform2D, Texture2D);
+    //ECS_SYSTEM(world, RenderNineSlices, EcsOnUpdate, renderer:Camera, renderer:BatchSpriteRenderer, Transform2D, Texture2D, NineSlice);
     ECS_SYSTEM(world, GrabMoveCamera, EcsPreUpdate, renderer:Camera, input:EventMouseMotion);
     ECS_SYSTEM(world, ScrollZoomCamera, EcsPreUpdate, renderer:Camera, input:EventScroll);
     ECS_SYSTEM(world, CameraCalculateView, EcsOnUpdate, Camera);
-    ECS_SYSTEM(world, SelectVisualSymbol, EcsOnUpdate, renderer:Camera, input:EventMouseButton, Transform2D, Texture2D);
+    ECS_SYSTEM(world, SelectVisualSymbolQuery, EcsPreUpdate, renderer:Camera, input:EventMouseButton, [out] :*); //  [in] :Transform2D, [in] :Transform2D, [out] :Selected, [out] :Grabbed
     ECS_SYSTEM(world, MoveGrabbedTransforms, EcsOnUpdate, renderer:Camera, input:EventMouseMotion, Transform2D, Grabbed);
     ECS_SYSTEM(world, ConsumeEvents, EcsPostFrame, (ConsumeEvent, *));
     ECS_SYSTEM(world, UnGrab, EcsOnUpdate, input:EventMouseButton, Grabbed);
     ECS_SYSTEM(world, LoadDroppedFiles, EcsOnSet, EventDropFiles);
-
+    ECS_SYSTEM(world, DeleteSelected, EcsOnUpdate, input:EventKey, Selected)
+    
     glfwShowWindow(window);
 
     while (!glfwWindowShouldClose(window))

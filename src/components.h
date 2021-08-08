@@ -78,6 +78,17 @@ typedef struct
 } BatchSpriteRenderer;
 ECS_COMPONENT_DECLARE(BatchSpriteRenderer);
 
+typedef struct {
+    vec2 startPos;
+} DragSelector;
+ECS_COMPONENT_DECLARE(DragSelector);
+
+typedef struct
+{
+    float width, height;
+} NineSlice;
+ECS_COMPONENT_DECLARE(NineSlice);
+
 ECS_TAG_DECLARE(Selected);
 ECS_TAG_DECLARE(Grabbed);
 
@@ -113,3 +124,9 @@ typedef struct {
     const char** paths;
 } EventDropFiles;
 ECS_COMPONENT_DECLARE(EventDropFiles);
+
+typedef struct {
+  GLFWwindow* window;
+  int key, scancode, action, mods;
+} EventKey;
+ECS_COMPONENT_DECLARE(EventKey);
