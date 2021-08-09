@@ -932,7 +932,7 @@ int main(int argc, char const *argv[])
     window = glfwCreateWindow(640, 480, "Gui Gal 👩‍💻", NULL, NULL);
     glfwMakeContextCurrent(window);
     gladLoadGL();
-    glfwSwapInterval(1);
+    glfwSwapInterval(0);
     glfwSetKeyCallback(window, key_callback);
     glfwSetDropCallback(window, drop_callback);
     glfwSetCursorPosCallback(window, cursor_position_callback);
@@ -950,7 +950,11 @@ int main(int argc, char const *argv[])
     // glEnable(GL_DEPTH_TEST);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    // NVGcontext* vg = nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES);
+    NVGcontext* vg = nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES | NVG_DEBUG);
+	if (vg == NULL) {
+		printf("Could not init nanovg.\n");
+		return -1;
+	}
 
     renderer = ecs_set_name(world, 0, "renderer");
     ecs_set(world, renderer, Camera, {1.0});
@@ -975,16 +979,33 @@ int main(int argc, char const *argv[])
     {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
         glfwPollEvents();
-        // nvgBeginPath(vg);
-        // nvgRect(vg, 100,100, 120,30);
-        // nvgFillColor(vg, nvgRGBA(255,192,0,255));
-        // nvgFill(vg);
+		int winWidth, winHeight;
+		int fbWidth, fbHeight;
+		float pxRatio;
+		glfwGetWindowSize(window, &winWidth, &winHeight);
+		glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
+		// Calculate pixel ration for hi-dpi devices.
+		pxRatio = (float)fbWidth / (float)winWidth;
+        glEnable(GL_BLEND);
+		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+		glEnable(GL_CULL_FACE);
+		glDisable(GL_DEPTH_TEST);
+        nvgBeginFrame(vg, winWidth, winHeight, pxRatio);
+        nvgBeginPath(vg);
+        float radius = 16;
+        nvgCircle(vg, 0, 0, radius);
+        nvgCircle(vg, winWidth, 0, radius);
+        nvgCircle(vg, 0, winHeight, radius);
+        nvgCircle(vg, winWidth, winHeight, radius);
+        nvgFillColor(vg, nvgRGBA(48,48,48,255));
+        nvgFill(vg);
+        nvgEndFrame(vg);
         ecs_progress(world, 0);
         glfwSwapBuffers(window);
     }
     glfwDestroyWindow(window);
     glfwTerminate();
     ecs_fini(world);
-    // nvgDeleteGL3(vg);
+    nvgDeleteGL3(vg);
     return 0;
 }
