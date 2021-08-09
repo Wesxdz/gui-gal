@@ -16,6 +16,7 @@ include_directories("deps/cglm/include")
 include_directories("deps/SDL/include")
 # include_directories("deps/SDL_image")
 include_directories("deps/giflib-5.2.1")
+include_directories("deps/nanovg/src")
 
 set(GLAD_GL "deps/glad/include/glad/glad.h"
             "deps/glad/src/glad.c")
@@ -25,6 +26,7 @@ file(GLOB_RECURSE SOURCES "${SOURCE_PATH}/*.c")
 add_subdirectory("deps/flecs")
 add_subdirectory("deps/glfw")
 add_subdirectory("deps/cglm")
+add_subdirectory("deps/nanovg")
 
 link_directories("deps/giflib-5.2.1")
 

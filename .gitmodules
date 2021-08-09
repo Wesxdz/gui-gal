@@ -19,3 +19,6 @@
 [submodule "deps/SDL_image"]
 	path = deps/SDL_image
 	url = https://github.com/libsdl-org/SDL_image.git
+[submodule "deps/nanovg"]
+	path = deps/nanovg
+	url = https://github.com/Wesxdz/nanovg.git
