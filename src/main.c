@@ -10,6 +10,10 @@
 
 #include "components.h"
 
+#define NANOVG_GL3_IMPLEMENTATION
+#include "nanovg.h"
+#include "nanovg_gl.h"
+
 // flecs modules
 // #include "input.h"
 
@@ -207,6 +211,10 @@ void RenderSprites(ecs_iter_t* it)
     glUniformMatrix4fv(glGetUniformLocation(renderer->shader.programId, "view"), 1, false, camera->view[0]);
     mat4 proj;
     int wwidth, wheight;
+    vec4 box = {0.0, 0.0, 1.0, 1.0};
+    vec4 scale = {1.0, 1.0};
+    glUniform4f(glGetUniformLocation(renderer->shader.programId, "box"), box[0], box[1], box[2], box[3]);
+    glUniform2f(glGetUniformLocation(renderer->shader.programId, "scale"), scale[0], scale[1]);
     glfwGetWindowSize(window, &wwidth, &wheight);
     glm_ortho(0.0, wwidth, wheight, 0.0, -1.0, 10.0, proj); // TODO: Window component
     glUniformMatrix4fv(glGetUniformLocation(renderer->shader.programId, "projection"), 1, false, proj[0]);
@@ -911,10 +919,11 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, deallocate_texture, EcsOnRemove, Texture2D);
     IMG_Init(IMG_INIT_JPG | IMG_INIT_PNG | IMG_INIT_WEBP);
     glfwInit();
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
-    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+    // glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+    // glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_RESIZABLE, GL_TRUE);
     glfwWindowHint(GLFW_DECORATED, GL_FALSE);
     glfwWindowHint(GLFW_VISIBLE, GL_FALSE);
@@ -937,7 +946,11 @@ int main(int argc, char const *argv[])
     glViewport(0, 0, width, height);
     glEnable(GL_TEXTURE_2D);
     glEnable(GL_BLEND);
+    glEnable(GL_STENCIL_TEST);
+    // glEnable(GL_DEPTH_TEST);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    // NVGcontext* vg = nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES);
 
     renderer = ecs_set_name(world, 0, "renderer");
     ecs_set(world, renderer, Camera, {1.0});
@@ -960,13 +973,18 @@ int main(int argc, char const *argv[])
 
     while (!glfwWindowShouldClose(window))
     {
-        glClear(GL_COLOR_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
         glfwPollEvents();
+        // nvgBeginPath(vg);
+        // nvgRect(vg, 100,100, 120,30);
+        // nvgFillColor(vg, nvgRGBA(255,192,0,255));
+        // nvgFill(vg);
         ecs_progress(world, 0);
         glfwSwapBuffers(window);
     }
     glfwDestroyWindow(window);
     glfwTerminate();
     ecs_fini(world);
+    // nvgDeleteGL3(vg);
     return 0;
 }

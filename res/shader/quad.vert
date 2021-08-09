@@ -1,14 +1,14 @@
-#version 400
+#version 300 es
 layout (location = 0) in vec4 vertex;
 
-out vec2 coords;
+out highp vec2 coords;
 
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
 
-uniform vec4 box = vec4(0.0, 0.0, 1.0, 1.0); // x, y offset z, w scale
-uniform vec2 scale = vec2(1.0, 1.0);
+uniform vec4 box; // = vec4(0.0, 0.0, 1.0, 1.0); // x, y offset z, w scale
+uniform vec2 scale;// = vec2(1.0, 1.0);
 
 void main()
 {

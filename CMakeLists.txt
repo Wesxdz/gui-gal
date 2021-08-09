@@ -21,12 +21,13 @@ include_directories("deps/nanovg/src")
 set(GLAD_GL "deps/glad/include/glad/glad.h"
             "deps/glad/src/glad.c")
 
+file(GLOB_RECURSE NANOVG "deps/nanovg/src/*c")
+
 file(GLOB_RECURSE SOURCES "${SOURCE_PATH}/*.c")
 
 add_subdirectory("deps/flecs")
 add_subdirectory("deps/glfw")
 add_subdirectory("deps/cglm")
-add_subdirectory("deps/nanovg")
 
 link_directories("deps/giflib-5.2.1")
 
@@ -35,5 +36,5 @@ link_directories("deps/giflib-5.2.1")
 # execute_process(WORKING_DIRECTORY "./deps/giflib-5.2.1/" COMMAND make)
 
 
-add_executable(${EDITOR_NAME} ${SOURCES} ${GLAD_GL})
+add_executable(${EDITOR_NAME} ${SOURCES} ${GLAD_GL} ${NANOVG})
 target_link_libraries(${EDITOR_NAME} glfw SDL2 SDL2_image flecs gif)
