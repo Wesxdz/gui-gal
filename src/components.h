@@ -2,6 +2,7 @@
 #include <GLFW/glfw3.h>
 #include <SDL2/SDL_image.h>
 #include <flecs/flecs.h>
+#include "nanovg.h"
 
 typedef struct
 {
@@ -130,3 +131,8 @@ typedef struct {
   int key, scancode, action, mods;
 } EventKey;
 ECS_COMPONENT_DECLARE(EventKey);
+
+typedef struct {
+    NVGcontext* vg;
+} NanoVG;
+ECS_COMPONENT_DECLARE(NanoVG);

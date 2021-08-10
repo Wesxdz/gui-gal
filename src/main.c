@@ -736,6 +736,7 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
 
     if (event->button == GLFW_MOUSE_BUTTON_LEFT && event->action == GLFW_PRESS)
     {
+        ecs_defer_begin(it->world);
         // Visual symbol archetypes systems have separate iterators! 
         ecs_query_t* query = ecs_query_new(world, "Transform2D, Texture2D");
         ecs_iter_t qIt = ecs_query_iter(query);
@@ -752,9 +753,14 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
         qIt = ecs_query_iter(query);
         double xpos, ypos;
         glfwGetCursorPos(event->window, &xpos, &ypos);
+        printf("Cursor screen pos: (%f, %f)\n", xpos, ypos);
         vec2 screenPos = {xpos, ypos};
         vec2 worldPos;
         screen_to_world(camera->view, screenPos, worldPos);
+        printf("Cursor world pos: (%f, %f)\n", worldPos[0], worldPos[1]);
+        vec2 cScreen;
+        world_to_screen(camera->view, worldPos, cScreen);
+        printf("Converted screen pos: (%f, %f)\n", cScreen[0], cScreen[1]);
         int right = glfwGetKey(event->window, GLFW_KEY_RIGHT_SHIFT);
         int left = glfwGetKey(event->window, GLFW_KEY_LEFT_SHIFT);
 
@@ -822,6 +828,7 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
                 }
             }
         }
+        ecs_defer_end(it->world);
     }
 }
 
@@ -842,6 +849,28 @@ void screen_to_world(mat4* view, vec2 screenCoords, vec2 world)
     glm_mat4_mulv(vp, screenNormalized, worldPos);
     world[0] = worldPos[0];
     world[1] = worldPos[1];
+}
+
+void world_to_screen(mat4* view, vec2 worldCoords, vec2 screen)
+{
+    mat4 proj;
+    int wwidth, wheight;
+    glfwGetWindowSize(window, &wwidth, &wheight);
+    glm_ortho(0.0, wwidth, wheight, 0.0, -1.0, 10.0, proj);
+    // TODO: consider model for rotated textures
+    vec4 coords = {worldCoords[0], worldCoords[1], 0.0, 1.0};
+    vec4 screenNormalized;
+    glm_mat4_inv(proj, proj);
+    mat4 invView;
+    glm_mat4_inv(view, invView);
+    glm_mat4_mulv(proj, coords, screenNormalized);
+    mat4 vp;
+    glm_mat4_mul(proj, invView, vp);
+    glm_mat4_inv(vp, vp);
+    vec4 worldPos;
+    glm_mat4_mulv(vp, screenNormalized, worldPos);
+    screen[0] = worldPos[0];
+    screen[1] = worldPos[1];
 }
 
 void register_components()
@@ -867,6 +896,80 @@ void ScrollZoomCamera(ecs_iter_t* it)
     vec2 camScale = {camera->scale * 0.025, camera->scale * 0.025};
     glm_vec2_mul(cursorScreenPos, camScale, cursorScreenPos);
     glm_vec2_add(camera->pos, cursorScreenPos, camera->pos);
+}
+
+void StartNanoVGFrame(ecs_iter_t* it)
+{
+    NanoVG* nano = ecs_term(it, NanoVG, 1);
+    int winWidth, winHeight;
+    int fbWidth, fbHeight;
+    float pxRatio;
+    glfwGetWindowSize(window, &winWidth, &winHeight);
+    glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
+    // Calculate pixel ration for hi-dpi devices.
+    pxRatio = (float)fbWidth / (float)winWidth;
+    nvgBeginFrame(nano->vg, winWidth, winHeight, pxRatio);
+}
+
+void EndNanoVGFrame(ecs_iter_t* it)
+{
+    NanoVG* nano = ecs_term(it, NanoVG, 1);
+    nvgEndFrame(nano->vg);
+}
+
+void RenderSelectionIndicators(ecs_iter_t* it)
+{
+    NanoVG* nano = ecs_term(it, NanoVG, 1);
+    Camera* camera = ecs_term(it, Camera, 2);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_CULL_FACE);
+    glDisable(GL_DEPTH_TEST);
+    nvgBeginPath(nano->vg);
+    float radius = 6;
+    
+    for (int32_t i = 0; i < it->count; i++)
+    {
+        Transform2D* transform = ecs_term(it, Transform2D, 3);
+        Texture2D* texture = ecs_term(it, Texture2D, 4);
+        vec2 upperLeft = {transform[i].pos[0], transform[i].pos[1]};
+        world_to_screen(camera->view, upperLeft, upperLeft);
+        vec2 upperRight = {transform[i].pos[0] + texture[i].width, transform[i].pos[1]};
+        world_to_screen(camera->view, upperRight, upperRight);
+        vec2 lowerLeft = {transform[i].pos[0], transform[i].pos[1] + texture[i].height};
+        world_to_screen(camera->view, lowerLeft, lowerLeft);
+        vec2 lowerRight = {transform[i].pos[0] + texture[i].width, transform[i].pos[1] + texture[i].height};
+        world_to_screen(camera->view, lowerRight, lowerRight);
+        
+        float w = upperRight[0] - upperLeft[0];
+        float h = lowerLeft[1] - upperLeft[1];
+        
+        nvgRect(nano->vg, upperLeft[0] - radius, upperLeft[1] - radius, 1, h + radius*2);
+        nvgRect(nano->vg, upperLeft[0] - radius, upperLeft[1] - radius, w + radius*2, 1);
+        nvgRect(nano->vg, lowerRight[0] + radius, lowerRight[1] + radius, 1, -h - radius*2);
+        nvgRect(nano->vg, lowerRight[0] + radius, lowerRight[1] + radius, -w - radius*2, 1);
+
+        nvgRect(nano->vg, upperLeft[0] - radius - 1, upperLeft[1] - radius, 3, h/4 + radius*2);
+        nvgRect(nano->vg, upperLeft[0] - radius, upperLeft[1] - radius - 1, w/4 + radius*2, 3);
+
+        nvgRect(nano->vg, lowerRight[0] + radius - 1, lowerRight[1] + radius, 3, -h/4 - radius*2);
+        nvgRect(nano->vg, lowerRight[0] + radius, lowerRight[1] + radius - 1, -w/4 - radius*2, 3);
+
+        nvgRect(nano->vg, upperRight[0] + radius - 1, upperRight[1] - radius, 3, h/4 + radius*2);
+        nvgRect(nano->vg, upperRight[0] + radius, upperRight[1] - radius - 1, -w/4 - radius*2, 3);
+
+        nvgRect(nano->vg, lowerLeft[0] - radius - 1, lowerLeft[1] + radius, 3, -h/4 - radius*2);
+        nvgRect(nano->vg, lowerLeft[0] - radius, lowerLeft[1] + radius - 1, w/4 + radius*2, 3);
+
+        nvgCircle(nano->vg, upperLeft[0] - radius, upperLeft[1] - radius, radius);
+        nvgCircle(nano->vg, upperRight[0] + radius, upperRight[1] - radius, radius);
+        nvgCircle(nano->vg, lowerLeft[0] - radius, lowerLeft[1] + radius, radius);
+        nvgCircle(nano->vg, lowerRight[0] + radius, lowerRight[1] + radius, radius);
+    }
+    nvgFillColor(nano->vg, nvgRGBA(157, 3, 252,255));
+    nvgFill(nano->vg);
+    glEnable(GL_DEPTH_TEST);
+
 }
 
 double lastXPos, lastYPos;
@@ -907,6 +1010,7 @@ int main(int argc, char const *argv[])
     ECS_COMPONENT_DEFINE(world, DragSelector);
     ECS_COMPONENT_DEFINE(world, NineSlice);
     ECS_COMPONENT_DEFINE(world, EventKey);
+    ECS_COMPONENT_DEFINE(world, NanoVG);
     ECS_TAG_DEFINE(world, Selected);
     ECS_TAG_DEFINE(world, Grabbed);
     
@@ -950,15 +1054,11 @@ int main(int argc, char const *argv[])
     // glEnable(GL_DEPTH_TEST);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    NVGcontext* vg = nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES | NVG_DEBUG);
-	if (vg == NULL) {
-		printf("Could not init nanovg.\n");
-		return -1;
-	}
 
     renderer = ecs_set_name(world, 0, "renderer");
     ecs_set(world, renderer, Camera, {1.0});
     ecs_set(world, renderer, BatchSpriteRenderer, {});
+    ecs_set(world, renderer, NanoVG, {nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES | NVG_DEBUG)});
 
     ECS_SYSTEM(world, AnimateGif, EcsPreUpdate, GifAnimator, Texture2D, MultiTexture2D);
     ECS_SYSTEM(world, RenderSprites, EcsOnUpdate, renderer:Camera, renderer:BatchSpriteRenderer, Transform2D, Texture2D);
@@ -972,6 +1072,9 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, UnGrab, EcsOnUpdate, input:EventMouseButton, Grabbed);
     ECS_SYSTEM(world, LoadDroppedFiles, EcsOnSet, EventDropFiles);
     ECS_SYSTEM(world, DeleteSelected, EcsOnUpdate, input:EventKey, Selected)
+    ECS_SYSTEM(world, StartNanoVGFrame, EcsPreFrame, renderer:NanoVG);
+    ECS_SYSTEM(world, RenderSelectionIndicators, EcsOnUpdate, renderer:NanoVG, renderer:Camera, Transform2D, Texture2D, Selected); 
+    ECS_SYSTEM(world, EndNanoVGFrame, EcsPostFrame, renderer:NanoVG);
     
     glfwShowWindow(window);
 
@@ -979,33 +1082,12 @@ int main(int argc, char const *argv[])
     {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
         glfwPollEvents();
-		int winWidth, winHeight;
-		int fbWidth, fbHeight;
-		float pxRatio;
-		glfwGetWindowSize(window, &winWidth, &winHeight);
-		glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
-		// Calculate pixel ration for hi-dpi devices.
-		pxRatio = (float)fbWidth / (float)winWidth;
-        glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-		glEnable(GL_CULL_FACE);
-		glDisable(GL_DEPTH_TEST);
-        nvgBeginFrame(vg, winWidth, winHeight, pxRatio);
-        nvgBeginPath(vg);
-        float radius = 16;
-        nvgCircle(vg, 0, 0, radius);
-        nvgCircle(vg, winWidth, 0, radius);
-        nvgCircle(vg, 0, winHeight, radius);
-        nvgCircle(vg, winWidth, winHeight, radius);
-        nvgFillColor(vg, nvgRGBA(48,48,48,255));
-        nvgFill(vg);
-        nvgEndFrame(vg);
         ecs_progress(world, 0);
         glfwSwapBuffers(window);
     }
     glfwDestroyWindow(window);
     glfwTerminate();
     ecs_fini(world);
-    nvgDeleteGL3(vg);
+    // nvgDeleteGL3(vg);
     return 0;
 }
