@@ -1,4 +1,5 @@
 ### ***Gui Gal*** is your open source virtual companion for action-centric perception, design, and engineering.
+![](./res/img/gui_small_icon.png)
 
 Roadmap
 * Visual symbol interface (scale, round corners, custom shader composition)
