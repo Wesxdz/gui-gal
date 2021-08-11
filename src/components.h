@@ -80,7 +80,7 @@ typedef struct
 ECS_COMPONENT_DECLARE(BatchSpriteRenderer);
 
 typedef struct {
-    vec2 startPos;
+    float x, y, w, h;
 } DragSelector;
 ECS_COMPONENT_DECLARE(DragSelector);
 

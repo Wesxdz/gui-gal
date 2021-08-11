@@ -8,6 +8,9 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
+#define CUTE_C2_IMPLEMENTATION
+#include "cute_c2.h"
+
 #include "components.h"
 
 #define NANOVG_GL3_IMPLEMENTATION
@@ -729,15 +732,51 @@ void UnGrab(ecs_iter_t* it)
     }
 }
 
+void RenderDragSelector(ecs_iter_t* it)
+{
+    NanoVG* nano = ecs_term(it, NanoVG, 1);
+    DragSelector* selector = ecs_term(it, DragSelector, 2);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_CULL_FACE);
+    glDisable(GL_DEPTH_TEST);
+    nvgBeginPath(nano->vg);
+
+    nvgRect(nano->vg, selector->x, selector->y, selector->w, 1);
+    nvgRect(nano->vg, selector->x, selector->y, 1, selector->h);
+    nvgRect(nano->vg, selector->x, selector->y + selector->h, selector->w, 1);
+    nvgRect(nano->vg, selector->x + selector->w, selector->y, 1, selector->h);
+    nvgFillColor(nano->vg, nvgRGBA(34, 224, 107, 255));
+    nvgFill(nano->vg);
+    nvgClosePath(nano->vg);
+
+    nvgBeginPath(nano->vg);
+    nvgRect(nano->vg, selector->x, selector->y, selector->w, selector->h);
+    nvgFillColor(nano->vg, nvgRGBA(34, 224, 107, 4));
+    nvgFill(nano->vg);
+    nvgClosePath(nano->vg);
+    glEnable(GL_DEPTH_TEST);
+}
+
+void MoveDragSelector(ecs_iter_t* it)
+{
+    DragSelector* selector = ecs_term(it, DragSelector, 1);
+    EventMouseMotion* event = ecs_term(it, EventMouseMotion, 2);
+
+    selector->w += event->delta[0];
+    selector->h += event->delta[1];
+}
+
 void SelectVisualSymbolQuery(ecs_iter_t* it)
 {
     Camera* camera = ecs_term(it, Camera, 1);
     EventMouseButton* event = ecs_term(it, EventMouseButton, 2);
+    DragSelector* selector = ecs_term(it, DragSelector, 3);
+    bool isDragSelected = selector != NULL;
 
-    if (event->button == GLFW_MOUSE_BUTTON_LEFT && event->action == GLFW_PRESS)
+    // ecs_defer_begin(it->world);
+    if (event->button == GLFW_MOUSE_BUTTON_LEFT)
     {
-        ecs_defer_begin(it->world);
-        // Visual symbol archetypes systems have separate iterators! 
         ecs_query_t* query = ecs_query_new(world, "Transform2D, Texture2D");
         ecs_iter_t qIt = ecs_query_iter(query);
 
@@ -751,85 +790,117 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
         ecs_entity_t toSelectNodes[visualSymbolCount];
         size_t toSelectCount = 0;
         qIt = ecs_query_iter(query);
-        double xpos, ypos;
-        glfwGetCursorPos(event->window, &xpos, &ypos);
-        printf("Cursor screen pos: (%f, %f)\n", xpos, ypos);
-        vec2 screenPos = {xpos, ypos};
-        vec2 worldPos;
-        screen_to_world(camera->view, screenPos, worldPos);
-        printf("Cursor world pos: (%f, %f)\n", worldPos[0], worldPos[1]);
-        vec2 cScreen;
-        world_to_screen(camera->view, worldPos, cScreen);
-        printf("Converted screen pos: (%f, %f)\n", cScreen[0], cScreen[1]);
-        int right = glfwGetKey(event->window, GLFW_KEY_RIGHT_SHIFT);
-        int left = glfwGetKey(event->window, GLFW_KEY_LEFT_SHIFT);
-
-        bool selectAdd = false;
-        bool grabSelected = false;
-        while (ecs_query_next(&qIt)) 
+        
+        if (isDragSelected && event->action == GLFW_RELEASE)
         {
-            Transform2D* transform = ecs_term(&qIt, Transform2D, 1);
-            Texture2D* texture = ecs_term(&qIt, Texture2D, 2);
+            while (ecs_query_next(&qIt)) 
+            {
+                Transform2D* transform = ecs_term(&qIt, Transform2D, 1);
+                Texture2D* texture = ecs_term(&qIt, Texture2D, 2);
 
-            if (right == GLFW_PRESS || left == GLFW_PRESS)
-            {
-                selectAdd = true;
-            }
-            for (int32_t i = 0; i < qIt.count; i++)
-            {
-                vec2 dist = {0.0f, 0.0f};
-                glm_vec2_sub(worldPos, transform[i].pos, dist);
-                bool isSelected = ecs_has(qIt.world, qIt.entities[i], Selected);
-                if (isSelected)
+                for (int32_t i = 0; i < qIt.count; i++)
                 {
-                    curSelectedNodes[curSelectedCount] = qIt.entities[i];
-                    curSelectedCount++;
+                    vec2 sStart = {selector->x, selector->y};
+                    vec2 selectorStart;
+                    screen_to_world(camera->view, sStart, selectorStart);
+                    vec2 sEnd = {selector->x + selector->w, selector->y + selector->h};
+                    vec2 selectorEnd;
+                    screen_to_world(camera->view, sEnd, selectorEnd);
+                    vec2 minPos = {c2Min(selectorStart[0], selectorEnd[0]), c2Min(selectorStart[1], selectorEnd[1])};
+                    vec2 maxPos = {c2Max(selectorStart[0], selectorEnd[0]), c2Max(selectorStart[1], selectorEnd[1])};
+                    c2AABB selectorBox = {{minPos[0], minPos[1]}, {maxPos[0], maxPos[1]}};
+                    c2AABB visualSymbolBounds = {{transform[i].pos[0], transform[i].pos[1]}, {transform[i].pos[0] + texture[i].width, transform[i].pos[1] + texture[i].height}};
+                    bool selectorOverlaps = c2AABBtoAABB(selectorBox, visualSymbolBounds);
+                    
+                    if (selectorOverlaps)
+                    {
+                        ecs_add(it->world, qIt.entities[i], Selected);
+                    }
                 }
-                if (dist[0] > 0.0 && dist[0] <= texture[i].width &&
-                dist[1] > 0.0 && dist[1] <= texture[i].height)
+
+            }
+            ecs_remove(it->world, input, DragSelector);
+        }
+        if (event->action == GLFW_PRESS)
+        {
+            double xpos, ypos;
+            glfwGetCursorPos(event->window, &xpos, &ypos);
+            vec2 screenPos = {xpos, ypos};
+            vec2 worldPos;
+            screen_to_world(camera->view, screenPos, worldPos);
+            int right = glfwGetKey(event->window, GLFW_KEY_RIGHT_SHIFT);
+            int left = glfwGetKey(event->window, GLFW_KEY_LEFT_SHIFT);
+
+            bool selectAdd = false;
+            bool grabSelected = false;
+            while (ecs_query_next(&qIt)) 
+            {
+                Transform2D* transform = ecs_term(&qIt, Transform2D, 1);
+                Texture2D* texture = ecs_term(&qIt, Texture2D, 2);
+
+                if (right == GLFW_PRESS || left == GLFW_PRESS)
                 {
+                    selectAdd = true;
+                }
+                for (int32_t i = 0; i < qIt.count; i++)
+                {
+                    vec2 dist = {0.0f, 0.0f};
+                    glm_vec2_sub(worldPos, transform[i].pos, dist);
+                    bool isSelected = ecs_has(qIt.world, qIt.entities[i], Selected);
                     if (isSelected)
                     {
-                        grabSelected = true;
+                        curSelectedNodes[curSelectedCount] = qIt.entities[i];
+                        curSelectedCount++;
                     }
-                    toSelectNodes[toSelectCount] = qIt.entities[i];
-                    toSelectCount++;
+                    if (dist[0] > 0.0 && dist[0] <= texture[i].width &&
+                    dist[1] > 0.0 && dist[1] <= texture[i].height)
+                    {
+                        if (isSelected)
+                        {
+                            grabSelected = true;
+                        }
+                        toSelectNodes[toSelectCount] = qIt.entities[i];
+                        toSelectCount++;
+                    }
+                }
+            }
+
+            if (selectAdd)
+            {
+                ecs_add(it->world, toSelectNodes[0], Selected);
+                ecs_set(it->world, input, DragSelector, {xpos, ypos, 0, 0});
+            } else
+            {
+                if (grabSelected)
+                {
+                    for (int32_t i = 0; i < curSelectedCount; i++)
+                    {
+                        ecs_add(it->world, curSelectedNodes[i], Grabbed);
+                    }
+                } else
+                { 
+                    if (toSelectCount > 0)
+                    {
+                        for (int32_t i = 0; i < curSelectedCount; i++)
+                        {
+                            ecs_remove(it->world, curSelectedNodes[i], Selected);
+                        }
+                        ecs_add(it->world, toSelectNodes[0], Selected);
+                        ecs_add(it->world, toSelectNodes[0], Grabbed);
+                    } else
+                    {
+                        for (int32_t i = 0; i < curSelectedCount; i++)
+                        {
+                            ecs_remove(it->world, curSelectedNodes[i], Selected);
+                        }
+                        ecs_set(it->world, input, DragSelector, {xpos, ypos, 0, 0});
+                    }
                 }
             }
         }
 
-        if (selectAdd)
-        {
-            ecs_add(it->world, toSelectNodes[0], Selected);
-        } else
-        {
-            if (grabSelected)
-            {
-                for (int32_t i = 0; i < curSelectedCount; i++)
-                {
-                    ecs_add(it->world, curSelectedNodes[i], Grabbed);
-                }
-            } else
-            { 
-                if (toSelectCount > 0)
-                {
-                    for (int32_t i = 0; i < curSelectedCount; i++)
-                    {
-                        ecs_remove(it->world, curSelectedNodes[i], Selected);
-                    }
-                    ecs_add(it->world, toSelectNodes[0], Selected);
-                    ecs_add(it->world, toSelectNodes[0], Grabbed);
-                } else
-                {
-                    for (int32_t i = 0; i < curSelectedCount; i++)
-                    {
-                        ecs_remove(it->world, curSelectedNodes[i], Selected);
-                    }
-                }
-            }
-        }
-        ecs_defer_end(it->world);
     }
+    // ecs_defer_end(it->world);
 }
 
 void screen_to_world(mat4* view, vec2 screenCoords, vec2 world)
@@ -1066,7 +1137,7 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, GrabMoveCamera, EcsPreUpdate, renderer:Camera, input:EventMouseMotion);
     ECS_SYSTEM(world, ScrollZoomCamera, EcsPreUpdate, renderer:Camera, input:EventScroll);
     ECS_SYSTEM(world, CameraCalculateView, EcsOnUpdate, Camera);
-    ECS_SYSTEM(world, SelectVisualSymbolQuery, EcsPreUpdate, renderer:Camera, input:EventMouseButton, [out] :*); //  [in] :Transform2D, [in] :Transform2D, [out] :Selected, [out] :Grabbed
+    ECS_SYSTEM(world, SelectVisualSymbolQuery, EcsPreUpdate, renderer:Camera, input:EventMouseButton, ?DragSelector, [out] :*); //  [in] :Transform2D, [in] :Transform2D, [out] :Selected, [out] :Grabbed
     ECS_SYSTEM(world, MoveGrabbedTransforms, EcsOnUpdate, renderer:Camera, input:EventMouseMotion, Transform2D, Grabbed);
     ECS_SYSTEM(world, ConsumeEvents, EcsPostFrame, (ConsumeEvent, *));
     ECS_SYSTEM(world, UnGrab, EcsOnUpdate, input:EventMouseButton, Grabbed);
@@ -1075,6 +1146,8 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, StartNanoVGFrame, EcsPreFrame, renderer:NanoVG);
     ECS_SYSTEM(world, RenderSelectionIndicators, EcsOnUpdate, renderer:NanoVG, renderer:Camera, Transform2D, Texture2D, Selected); 
     ECS_SYSTEM(world, EndNanoVGFrame, EcsPostFrame, renderer:NanoVG);
+    ECS_SYSTEM(world, MoveDragSelector, EcsOnUpdate, input:DragSelector, input:EventMouseMotion);
+    ECS_SYSTEM(world, RenderDragSelector, EcsPostUpdate, renderer:NanoVG, input:DragSelector);
     
     glfwShowWindow(window);
 
