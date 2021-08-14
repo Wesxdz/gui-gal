@@ -1,7 +1,7 @@
 #include <cglm/cglm.h>
 #include <GLFW/glfw3.h>
 #include <SDL2/SDL_image.h>
-#include <flecs/flecs.h>
+#include <flecs.h>
 #include "nanovg.h"
 
 typedef struct
@@ -90,7 +90,12 @@ typedef struct
 } NineSlice;
 ECS_COMPONENT_DECLARE(NineSlice);
 
-ECS_TAG_DECLARE(Selected);
+typedef struct
+{
+    ecs_entity_t actionIndicators[4];
+} Selected;
+ECS_COMPONENT_DECLARE(Selected);
+
 ECS_TAG_DECLARE(Grabbed);
 ECS_TAG_DECLARE(DragHover);
 
@@ -137,3 +142,9 @@ typedef struct {
     NVGcontext* vg;
 } NanoVG;
 ECS_COMPONENT_DECLARE(NanoVG);
+
+typedef struct {
+    c2Circle bounds;
+    int cursorType;
+} CircleActionIndicator;
+ECS_COMPONENT_DECLARE(CircleActionIndicator);

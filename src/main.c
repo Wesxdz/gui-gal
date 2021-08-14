@@ -1,7 +1,7 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <stdio.h>
-#include <flecs/flecs.h>
+#include <flecs.h>
 #include <SDL2/SDL_image.h>
 #include <string.h>
 #include <gif_lib.h>
@@ -754,19 +754,24 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
     ecs_set_pair(world, input, ConsumeEvent, ecs_id(EventScroll), {});
 }
 
-void CameraCalculateView(ecs_iter_t* it)
+void calc_view(Camera* camera)
 {
-    Camera* camera = ecs_term(it, Camera, 1);
     vec3 eye = {0.0f, 0.0f, 0.0};
     vec3 center = {0.0, 0.0, -1.0};
     vec3 up = {0.0, 1.0, 0.0};
+    glm_lookat(eye, center, up, camera->view);
+    vec3 pos = {camera->pos[0], camera->pos[1], 0.0};
+    glm_translate(camera->view, pos);
+    vec3 scale = {camera->scale, camera->scale, 1.0};
+    glm_scale(camera->view, scale);
+}
+
+void CameraCalculateView(ecs_iter_t* it)
+{
+    Camera* camera = ecs_term(it, Camera, 1);
     for (int32_t i = 0; i < it->count; i++)
     {
-        glm_lookat(eye, center, up, camera[i].view);
-        vec3 pos = {camera[i].pos[0], camera[i].pos[1], 0.0};
-        glm_translate(camera[i].view, pos);
-        vec3 scale = {camera[i].scale, camera[i].scale, 1.0};
-        glm_scale(camera[i].view, scale);
+        calc_view(&camera[i]);
     }
 }
 
@@ -850,6 +855,48 @@ void MoveDragSelector(ecs_iter_t* it)
     selector->h += event->delta[1];
 }
 
+void ScaleVisualSymbol(ecs_iter_t* it)
+{
+    EventMouseButton* event = ecs_term(it, EventMouseButton, 1);
+    Transform2D* transform = ecs_term(it, Transform2D, 2);
+    Texture2D* texture = ecs_term(it, Texture2D, 3);
+}
+
+void UpdateCursorAction(ecs_iter_t* it)
+{
+    Camera* camera = ecs_term(it, Camera, 1);
+    EventMouseMotion* event = ecs_term(it, EventMouseMotion, 2);
+    CircleActionIndicator* indicator = ecs_term(it, CircleActionIndicator, 3);
+
+    vec2 worldPos;
+    screen_to_world(camera->view, event->pos, worldPos);
+    c2v cursorWorldPos = {worldPos[0], worldPos[1]};
+    glfwSetCursor(window, NULL);
+    for (int32_t i = 0; i < it->count; i++)
+    {
+        bool inBounds = c2CircleToPoint(indicator[i].bounds, cursorWorldPos);
+        if (inBounds)
+        {
+            GLFWcursor* cursor = glfwCreateStandardCursor(indicator[i].cursorType);
+            glfwSetCursor(window, cursor);
+        }
+    }
+}
+
+void select_visual_symbol(ecs_world_t* world, ecs_entity_t* entity, c2AABB box)
+{
+    ecs_entity_t indicators[4];
+    const int cursorTypes[4] = {GLFW_RESIZE_NWSE_CURSOR, GLFW_RESIZE_NESW_CURSOR, GLFW_RESIZE_NWSE_CURSOR, GLFW_RESIZE_NESW_CURSOR};
+    const c2v coords[4] = {{box.min.x - 6, box.min.y - 6}, {box.max.x + 6, box.min.y - 6}, {box.max.x + 6, box.max.y + 6}, {box.min.x - 6, box.max.y + 6}};
+    for (size_t i = 0; i < 4; i++)
+    {
+        indicators[i] = ecs_new_id(world);
+        c2Circle bounds = {coords[i], 6};
+        ecs_set(world, indicators[i], CircleActionIndicator, {bounds, cursorTypes[i]});
+    }
+    ecs_set(world, entity, Selected, {indicators});
+}
+
 void SelectVisualSymbolQuery(ecs_iter_t* it)
 {
     Camera* camera = ecs_term(it, Camera, 1);
@@ -897,7 +944,7 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
                     
                     if (selectorOverlaps)
                     {
-                        ecs_add(it->world, qIt.entities[i], Selected);
+                        select_visual_symbol(it->world, qIt.entities[i], visualSymbolBounds);
                     }
                 }
 
@@ -916,6 +963,7 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
 
             bool selectAdd = false;
             bool grabSelected = false;
+            c2AABB visualSymbolBounds;
             while (ecs_query_next(&qIt)) 
             {
                 Transform2D* transform = ecs_term(&qIt, Transform2D, 1);
@@ -927,6 +975,8 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
                 }
                 for (int32_t i = 0; i < qIt.count; i++)
                 {
+                    c2AABB tmp = {{transform[i].pos[0], transform[i].pos[1]}, {transform[i].pos[0] + texture[i].width, transform[i].pos[1] + texture[i].height}};
+                    visualSymbolBounds = tmp;
                     vec2 dist = {0.0f, 0.0f};
                     glm_vec2_sub(worldPos, transform[i].pos, dist);
                     bool isSelected = ecs_has(qIt.world, qIt.entities[i], Selected);
@@ -950,7 +1000,7 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
 
             if (selectAdd)
             {
-                ecs_add(it->world, toSelectNodes[0], Selected);
+                select_visual_symbol(it->world, toSelectNodes[0], visualSymbolBounds);
                 ecs_set(it->world, input, DragSelector, {xpos, ypos, 0, 0});
             } else
             {
@@ -968,7 +1018,7 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
                         {
                             ecs_remove(it->world, curSelectedNodes[i], Selected);
                         }
-                        ecs_add(it->world, toSelectNodes[0], Selected);
+                        select_visual_symbol(it->world, toSelectNodes[0], visualSymbolBounds);
                         ecs_add(it->world, toSelectNodes[0], Grabbed);
                     } else
                     {
@@ -1036,20 +1086,28 @@ void ScrollZoomCamera(ecs_iter_t* it)
 {
     Camera* camera = ecs_term(it, Camera, 1);
     EventScroll* scroll = ecs_term(it, EventScroll, 2);
-    camera->scale = camera->scale + scroll->yoffset * 0.05;
-    // Zoom towards cursor position as edge
+
+    // Keep cursor positioned on the same image pixel it was above
     double xpos, ypos;
     glfwGetCursorPos(scroll->window, &xpos, &ypos);
 
     int wwidth, wheight;
     glfwGetWindowSize(scroll->window, &wwidth, &wheight);
     
-    vec2 cursorScreenPos = {wwidth/2.0 - xpos, wheight/2.0 - ypos};
+    // vec2 cursorScreenPos = {wwidth/2.0 - xpos, wheight/2.0 - ypos};
+    vec2 cursorScreenPos = {xpos, ypos};
     vec2 cursorWorldPos;
     screen_to_world(camera->view, cursorScreenPos, cursorWorldPos);
-    vec2 camScale = {camera->scale * 0.025, camera->scale * 0.025};
-    glm_vec2_mul(cursorScreenPos, camScale, cursorScreenPos);
-    glm_vec2_add(camera->pos, cursorScreenPos, camera->pos);
+    float lastScale = camera->scale;
+    camera->scale = camera->scale + scroll->yoffset * 0.10;
+    calc_view(camera);
+
+    vec2 cursorNewWorldPos;
+    screen_to_world(camera->view, cursorScreenPos, cursorNewWorldPos);
+
+    vec2 diff = {camera->scale * (cursorWorldPos[0] - cursorNewWorldPos[0]), camera->scale * (cursorWorldPos[1] - cursorNewWorldPos[1])};
+    glm_vec2_sub(camera->pos, diff, camera->pos);
+    calc_view(camera);
 }
 
 void StartNanoVGFrame(ecs_iter_t* it)
@@ -1171,7 +1229,8 @@ int main(int argc, char const *argv[])
     ECS_COMPONENT_DEFINE(world, NineSlice);
     ECS_COMPONENT_DEFINE(world, EventKey);
     ECS_COMPONENT_DEFINE(world, NanoVG);
-    ECS_TAG_DEFINE(world, Selected);
+    ECS_COMPONENT_DEFINE(world, CircleActionIndicator);
+    ECS_COMPONENT_DEFINE(world, Selected);
     ECS_TAG_DEFINE(world, Grabbed);
     ECS_TAG_DEFINE(world, DragHover);
     
@@ -1241,6 +1300,7 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, RenderSelectionIndicators, EcsPostUpdate, renderer:NanoVG, renderer:Camera, Transform2D, Texture2D, Selected); 
     ECS_SYSTEM(world, RenderDragSelector, EcsPostUpdate, renderer:NanoVG, input:DragSelector);
     ECS_SYSTEM(world, LoadClipboardFiles, EcsOnUpdate, input:EventMouseButton);
+    ECS_SYSTEM(world, UpdateCursorAction, EcsOnUpdate, renderer:Camera, input:EventMouseMotion, CircleActionIndicator);
 
     glfwShowWindow(window);
 

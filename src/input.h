@@ -1,7 +1,7 @@
 #ifndef INPUT_MODULE_H
 #define INPUT_MODULE_H
 
-#include <flecs/flecs.h>
+#include <flecs.h>
 #include <GLFW/glfw3.h>
 
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods);
