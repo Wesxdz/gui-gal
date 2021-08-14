@@ -10,8 +10,8 @@
 
 #### Roadmap
 * Visual symbol interface (scale, round corners, custom shader composition)
-* Symbol graph persistence (saving and loading groups of components and systems)
-* Game underlay UX
+* Symbol graph persistence (component and system module saving/loading, interoperable resource format import/export (like html or tiff))
+* Game underlay UX (interacting with a distinct flecs world as a symbol, wearenotart demo)
 * libclang runtime (live component and system manipulation)
 * Reverse engineer PureRef save format and create coverter
 * Video symbol
