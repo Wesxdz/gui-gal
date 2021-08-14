@@ -92,6 +92,7 @@ ECS_COMPONENT_DECLARE(NineSlice);
 
 ECS_TAG_DECLARE(Selected);
 ECS_TAG_DECLARE(Grabbed);
+ECS_TAG_DECLARE(DragHover);
 
 // Input
 typedef struct {

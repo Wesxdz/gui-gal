@@ -17,6 +17,8 @@
 #include "nanovg.h"
 #include "nanovg_gl.h"
 
+#include "curl/curl.h"
+
 // flecs modules
 // #include "input.h"
 
@@ -287,10 +289,11 @@ unsigned nearest_pow2(int length)
     return pow(2,ceil(log(length)/log(2)));
 }
 
-void create_texture(const char* file, ecs_entity_t entity, unsigned int* twidth, unsigned int* theight)
+bool create_texture(const char* file, ecs_entity_t entity, unsigned int* twidth, unsigned int* theight)
 {
     GLuint id;
     SDL_Surface* img = IMG_Load(file);
+    if (img == NULL) return false;
     int bpp;
     Uint32 Rmask, Gmask, Bmask, Amask;
     SDL_PixelFormatEnumToMasks(SDL_PIXELFORMAT_ABGR8888, &bpp, &Rmask,
@@ -319,6 +322,7 @@ void create_texture(const char* file, ecs_entity_t entity, unsigned int* twidth,
     SDL_FreeSurface(img_rgba8888);
     ecs_set(world, entity, Texture2D, {id, pow_w, pow_h, img->w, img->h});
     *twidth = img->w; *theight = img->h;
+    return true;
 }
 
 void create_multitexture_from_gif(GifFileType* gif, ecs_entity_t entity)
@@ -556,9 +560,17 @@ void SetInitialMultitexture(ecs_iter_t* it)
     texture->id = multitexture->ids[0];
 }
 
+
 void window_size_callback(GLFWwindow* window, int width, int height)
 {
     glViewport(0, 0, width, height);
+}
+
+void LoadClipboardFiles(ecs_iter_t* it)
+{
+    EventMouseButton* event = ecs_term(it, EventMouseButton, 1);
+    const char* clipboard = glfwGetClipboardString(window);	
+    printf("Test %s\n", clipboard);
 }
 
 void LoadDroppedFiles(ecs_iter_t* it)
@@ -566,17 +578,49 @@ void LoadDroppedFiles(ecs_iter_t* it)
     EventDropFiles* drop = ecs_term(it, EventDropFiles, 1);
     for (int i = 0; i < drop->count; i++)
     {
-        // struct stat* buf = malloc(sizeof stat);
-        // stat(paths[i], buf);
-        //  = S_ISDIR(buf->st_mode);
-         bool isDirectory = false;
-        // free(buf);
+        printf("Load dropped files\n");
+        struct stat info;
+        bool validPath = stat(drop->paths[i], &info) == 0;
+        bool isDirectory = (S_ISDIR(info.st_mode));
+        printf("%s\n", drop->paths[i]);
+        if (!validPath)
+        {
+            // Can something be loaded from a URL?
+            curl_global_init(CURL_GLOBAL_ALL);
+            CURL* curl = curl_easy_init();
+            if (curl)
+            {
+                CURLcode res;
+                FILE* fp;
+                char* path [FILENAME_MAX];
+                strcpy(path, drop->paths[i]);
+                char* pch = strtok(path, "/");
+                char* filename;
+                while (pch != NULL)
+                {
+                    filename = pch;
+                    pch = strtok(NULL, "/");
+                }
+                fp = fopen(filename, "w");
+
+                printf("Creating file %s\n", drop->paths[i]);
+                curl_easy_setopt(curl, CURLOPT_URL, drop->paths[i]);
+                curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, NULL);
+                curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
+                res = curl_easy_perform(curl);
+                printf("Curl code %d\n", res);
+
+                curl_easy_cleanup(curl);
+                fclose(fp);
+                drop->paths[i] = filename;
+                curl_global_cleanup();
+            }
+        }
+        if (isDirectory) continue;
         int error;
         GifFileType* gif = DGifOpenFileName(drop->paths[i], &error);
         bool isGif = gif != NULL;
         printf("%p:%d\n", (void*)gif, error);
-        // printf("Is Gif? %d\n", isGif);
-        printf("%p\n", drop->paths[i]);
 
         if (!isDirectory)
         {
@@ -599,7 +643,8 @@ void LoadDroppedFiles(ecs_iter_t* it)
             } else
             {
                 printf("Loading %s\n", drop->paths[i]);
-                create_texture(drop->paths[i], node, &twidth, &theight);
+                bool created = create_texture(drop->paths[i], node, &twidth, &theight);
+                if (!created) continue;
             }
             const Camera* camera = ecs_get(world, renderer, Camera);
             vec4 t;
@@ -624,6 +669,7 @@ void LoadDroppedFiles(ecs_iter_t* it)
 
 void drop_callback(GLFWwindow* window, int count, const char** paths)
 {
+    ecs_remove(world, input, DragHover);
     char** savedPaths = malloc(sizeof(char*) * count);
     for (int i = 0; i < count; i++)
     {
@@ -633,6 +679,42 @@ void drop_callback(GLFWwindow* window, int count, const char** paths)
     }
     ecs_set(world, input, EventDropFiles, {window, count, savedPaths});
     ecs_set_pair(world, input, ConsumeEvent, ecs_id(EventDropFiles), {});
+}
+
+void drag_callback(GLFWwindow* window, int entered)
+{
+    if (entered)
+    {
+        ecs_add(world, input, DragHover);
+    } else
+    {
+        ecs_remove(world, input, DragHover);
+    }
+}
+
+void RenderDragHover(ecs_iter_t* it)
+{
+    NanoVG* nano = ecs_term(it, NanoVG, 1);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_CULL_FACE);
+    glDisable(GL_DEPTH_TEST);
+
+    int width, height;
+    glfwGetWindowSize(window, &width, &height);
+    nvgBeginPath(nano->vg);
+    int border = 2;
+    int lineWidth = 1;
+    nvgRoundedRect(nano->vg, border, border, width - border*2, height - border*2, 16);
+    nvgPathWinding(nano->vg, NVG_HOLE);
+    nvgRoundedRect(nano->vg, border + lineWidth, border + lineWidth, width - border*2 - lineWidth*2, height - border*2 - lineWidth*2, 16);
+    nvgFillColor(nano->vg, nvgRGBA(221, 135, 56, 255));
+    // nvgFillColor(nano->vg, nvgRGBA(48, 170, 208, 255));
+    nvgFill(nano->vg); 
+
+    nvgClosePath(nano->vg);
+    // glEnable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
 }
 
 void ConsumeEvents(ecs_iter_t* it)
@@ -740,8 +822,8 @@ void RenderDragSelector(ecs_iter_t* it)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_CULL_FACE);
     glDisable(GL_DEPTH_TEST);
-    nvgBeginPath(nano->vg);
 
+    nvgBeginPath(nano->vg);
     nvgRect(nano->vg, selector->x, selector->y, selector->w, 1);
     nvgRect(nano->vg, selector->x, selector->y, 1, selector->h);
     nvgRect(nano->vg, selector->x, selector->y + selector->h, selector->w, 1);
@@ -755,7 +837,8 @@ void RenderDragSelector(ecs_iter_t* it)
     nvgFillColor(nano->vg, nvgRGBA(34, 224, 107, 4));
     nvgFill(nano->vg);
     nvgClosePath(nano->vg);
-    glEnable(GL_DEPTH_TEST);
+    // glEnable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
 }
 
 void MoveDragSelector(ecs_iter_t* it)
@@ -986,6 +1069,10 @@ void EndNanoVGFrame(ecs_iter_t* it)
 {
     NanoVG* nano = ecs_term(it, NanoVG, 1);
     nvgEndFrame(nano->vg);
+
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glDisable(GL_DEPTH_TEST);
 }
 
 void RenderSelectionIndicators(ecs_iter_t* it)
@@ -996,6 +1083,7 @@ void RenderSelectionIndicators(ecs_iter_t* it)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_CULL_FACE);
     glDisable(GL_DEPTH_TEST);
+    
     nvgBeginPath(nano->vg);
     float radius = 6;
     
@@ -1039,8 +1127,9 @@ void RenderSelectionIndicators(ecs_iter_t* it)
     }
     nvgFillColor(nano->vg, nvgRGBA(157, 3, 252,255));
     nvgFill(nano->vg);
-    glEnable(GL_DEPTH_TEST);
-
+    nvgClosePath(nano->vg);
+    // glEnable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
 }
 
 double lastXPos, lastYPos;
@@ -1084,6 +1173,7 @@ int main(int argc, char const *argv[])
     ECS_COMPONENT_DEFINE(world, NanoVG);
     ECS_TAG_DEFINE(world, Selected);
     ECS_TAG_DEFINE(world, Grabbed);
+    ECS_TAG_DEFINE(world, DragHover);
     
     // ECS_IMPORT(world, InputModule);
     input = ecs_set_name(world, 0, "input");
@@ -1110,6 +1200,7 @@ int main(int argc, char const *argv[])
     glfwSwapInterval(0);
     glfwSetKeyCallback(window, key_callback);
     glfwSetDropCallback(window, drop_callback);
+    glfwSetDragCallback(window, drag_callback);
     glfwSetCursorPosCallback(window, cursor_position_callback);
     glfwSetWindowSizeCallback(window, window_size_callback);
     glfwSetMouseButtonCallback(window, mouse_button_callback);
@@ -1144,11 +1235,13 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, LoadDroppedFiles, EcsOnSet, EventDropFiles);
     ECS_SYSTEM(world, DeleteSelected, EcsOnUpdate, input:EventKey, Selected)
     ECS_SYSTEM(world, StartNanoVGFrame, EcsPreFrame, renderer:NanoVG);
-    ECS_SYSTEM(world, RenderSelectionIndicators, EcsOnUpdate, renderer:NanoVG, renderer:Camera, Transform2D, Texture2D, Selected); 
-    ECS_SYSTEM(world, EndNanoVGFrame, EcsPostFrame, renderer:NanoVG);
+    ECS_SYSTEM(world, EndNanoVGFrame, EcsPostUpdate, renderer:NanoVG);
+    ECS_SYSTEM(world, RenderDragHover, EcsPostUpdate, renderer:NanoVG, input:DragHover);
     ECS_SYSTEM(world, MoveDragSelector, EcsOnUpdate, input:DragSelector, input:EventMouseMotion);
+    ECS_SYSTEM(world, RenderSelectionIndicators, EcsPostUpdate, renderer:NanoVG, renderer:Camera, Transform2D, Texture2D, Selected); 
     ECS_SYSTEM(world, RenderDragSelector, EcsPostUpdate, renderer:NanoVG, input:DragSelector);
-    
+    ECS_SYSTEM(world, LoadClipboardFiles, EcsOnUpdate, input:EventMouseButton);
+
     glfwShowWindow(window);
 
     while (!glfwWindowShouldClose(window))

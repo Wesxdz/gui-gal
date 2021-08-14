@@ -19,3 +19,9 @@
 [submodule "deps/nanovg"]
 	path = deps/nanovg
 	url = https://github.com/Wesxdz/nanovg.git
+[submodule "deps/glfw"]
+	path = deps/glfw
+	url = https://github.com/Wesxdz/glfw.git
+[submodule "deps/curl"]
+	path = deps/curl
+	url = https://github.com/curl/curl.git
