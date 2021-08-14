@@ -1,7 +1,14 @@
-### ***Gui Gal*** is your open source virtual companion for action-centric perception, design, and engineering.
+### ***Gui Gal*** is your open source virtual companion for design, engineering, and roleplay.
 ![](./res/img/gui_small_icon.png)
 
-Roadmap
+<sub>(Make your companion look like whatever you want with [Artbreeder](https://www.artbreeder.com/i?k=9584f4c4da5e3870fedd5c02c676 "Artbreeder"))</sub>
+
+#### Values
+* Playful
+* Aesthetic
+* Performant
+
+#### Roadmap
 * Visual symbol interface (scale, round corners, custom shader composition)
 * Symbol graph persistence (saving and loading groups of components and systems)
 * Game underlay UX
