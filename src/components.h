@@ -22,6 +22,12 @@ ECS_COMPONENT_DECLARE(CameraController);
 typedef struct
 {
     vec2 pos;
+} Local2D;
+ECS_DECLARE_COMPONENT(Local2D);
+
+typedef struct
+{
+    vec2 pos;
     float angle;
     float scale;
     int layer;
@@ -39,6 +45,8 @@ typedef struct
     GLuint id;
     unsigned pow_w, pow_h;
     unsigned width, height;
+    vec2 scale;
+    SDL_Surface* img;
 } Texture2D;
 ECS_COMPONENT_DECLARE(Texture2D);
 
@@ -146,5 +154,24 @@ ECS_COMPONENT_DECLARE(NanoVG);
 typedef struct {
     c2Circle bounds;
     int cursorType;
+    vec2 screenOffset;
+    ecs_entity_t symbol;
+    NVGcolor color;
 } CircleActionIndicator;
 ECS_COMPONENT_DECLARE(CircleActionIndicator);
+
+typedef struct {
+    bool active;
+    ecs_entity_t symbol;
+    int op;
+    vec2 origin;
+} ActionOnMouseInput;
+ECS_COMPONENT_DECLARE(ActionOnMouseInput);
+
+enum Operations
+{
+    SCALE_UPPER_LEFT,
+    SCALE_UPPER_RIGHT,
+    SCALE_LOWER_LEFT,
+    SCALE_LOWER_RIGHT,
+};
