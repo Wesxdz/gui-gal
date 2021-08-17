@@ -950,7 +950,15 @@ void select_visual_symbol(ecs_world_t* world, ecs_entity_t* entity, Texture2D* s
     {
         indicators[i] = ecs_new_id(world);
         c2Circle bounds = {coords[i], 6};
-        ecs_set(world, indicators[i], CircleActionIndicator, {bounds, cursorTypes[i], {screenOffsets[i][0], screenOffsets[i][1]}, entity, nvgRGBA(selected->img->pixels, 1, 1, 1)});
+        size_t b = c2Min((size_t)coords[i].x, selected->width - 1) * 4 + (c2Min((size_t)coords[i].y, selected->height - 1) * selected->pow_w * 4);
+	b = 0;
+	printf("(%d, %d)\n", selected->width, selected->height);
+	// b = (selected->width - 1) * 4 + (selected->height - 1) * selected->width;
+	SDL_LockSurface(selected->img);
+	unsigned char* pixels = (unsigned char*) selected->img->pixels;
+	NVGcolor color = nvgRGBA(pixels[b], pixels[b + 1], pixels[b + 2], 255);
+	SDL_UnlockSurface(selected->img);
+        ecs_set(world, indicators[i], CircleActionIndicator, {bounds, cursorTypes[i], {screenOffsets[i][0], screenOffsets[i][1]}, entity, color});
         ecs_add(world, indicators[i], Transform2D);
         ecs_set(world, indicators[i], Local2D, {coords[i].x, coords[i].y});
         ecs_add_pair(world, indicators[i], EcsChildOf, entity);
@@ -1229,6 +1237,7 @@ void EndNanoVGFrame(ecs_iter_t* it)
 
 void RenderSelectionIndicators(ecs_iter_t* it)
 {
+    return;
     NanoVG* nano = ecs_term(it, NanoVG, 1);
     Camera* camera = ecs_term(it, Camera, 2);
     glEnable(GL_BLEND);
@@ -1306,21 +1315,51 @@ void RenderActionIndicators(ecs_iter_t* it)
     glEnable(GL_CULL_FACE);
     glDisable(GL_DEPTH_TEST);
     
-    nvgBeginPath(nano->vg);
     float radius = 6;
 
     for (int32_t i = 0; i < it->count; i++)
     {
+        nvgBeginPath(nano->vg);
         vec2 screenPos;
         world_to_screen(camera->view, transform[i].pos, screenPos);
+        
+        nvgCircle(nano->vg, screenPos[0] + indicator[i].screenOffset[0], screenPos[1] + indicator[i].screenOffset[1], radius + 1);
+        NVGcolor inverted = nvgRGBAf(1.0 - indicator[i].color.r, 1.0 - indicator[i].color.g, 1.0 - indicator[i].color.b, 1.0);
+        float avg = (inverted.r + inverted.g + inverted.b)/3;
+        NVGcolor greyscale = nvgRGBAf(avg, avg, avg, 1.0);
+
+        float indAvg = (indicator->color.r + indicator->color.g + indicator->color.b)/3;
+        bool invertOutline = indAvg > avg;
+
+        if (invertOutline)
+        {
+            nvgFillColor(nano->vg, indicator[i].color);
+        } 
+        else
+        {
+            nvgFillColor(nano->vg, greyscale);
+        }
+        // nvgFillColor(nano->vg, nvgRGBA(255, 0, 0, 255));
+        nvgFill(nano->vg);
+        nvgClosePath(nano->vg);
+        
+        nvgBeginPath(nano->vg);
         nvgCircle(nano->vg, screenPos[0] + indicator[i].screenOffset[0], screenPos[1] + indicator[i].screenOffset[1], radius);
         // nvgPathWinding(nano->vg, NVG_HOLE);
         // nvgCircle(nano->vg, screenPos[0] + indicator[i].screenOffset[0], screenPos[1] + indicator[i].screenOffset[1], radius.0);
+        if (invertOutline)
+        {
+            nvgFillColor(nano->vg, greyscale);
+        } 
+        else
+        {
+            nvgFillColor(nano->vg, indicator[i].color);
+        }
+        nvgFill(nano->vg);
+
+        nvgClosePath(nano->vg);
     }
     // nvgFillColor(nano->vg, nvgRGBA(157, 3, 252,255));
-    nvgFillColor(nano->vg, indicator->color);
-    nvgFill(nano->vg);
-    nvgClosePath(nano->vg);
     // glEnable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
 }
@@ -1383,6 +1422,7 @@ int main(int argc, char const *argv[])
     glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+    glfwWindowHint(GLFW_SAMPLES, 4);
     // glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
     // glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_RESIZABLE, GL_TRUE);
@@ -1409,6 +1449,7 @@ int main(int argc, char const *argv[])
     glEnable(GL_TEXTURE_2D);
     glEnable(GL_BLEND);
     glEnable(GL_STENCIL_TEST);
+    glEnable(GL_MULTISAMPLE);  
     // glEnable(GL_DEPTH_TEST);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
