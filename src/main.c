@@ -1237,7 +1237,6 @@ void EndNanoVGFrame(ecs_iter_t* it)
 
 void RenderSelectionIndicators(ecs_iter_t* it)
 {
-    return;
     NanoVG* nano = ecs_term(it, NanoVG, 1);
     Camera* camera = ecs_term(it, Camera, 2);
     glEnable(GL_BLEND);
@@ -1291,6 +1290,64 @@ void RenderSelectionIndicators(ecs_iter_t* it)
     nvgClosePath(nano->vg);
     // glEnable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
+}
+
+void RenderImageSelectionIndicators(ecs_iter_t* it)
+{
+    Camera* camera = ecs_term(it, Camera, 1);
+    BatchSpriteRenderer* renderer = ecs_term(it, BatchSpriteRenderer, 2);
+    Transform2D* transform = ecs_term(it, Transform2D, 3);
+    Texture2D* texture = ecs_term(it, Texture2D, 4);
+
+    glUseProgram(renderer->shader.programId);
+    mat4 identity;
+    glm_mat4_identity(identity);
+    glUniformMatrix4fv(glGetUniformLocation(renderer->shader.programId, "view"), 1, false, identity);
+    mat4 proj;
+    int wwidth, wheight;
+    vec4 box = {0.0, 0.0, 1.0, 1.0};
+    glUniform4f(glGetUniformLocation(renderer->shader.programId, "box"), box[0], box[1], box[2], box[3]);
+    glfwGetWindowSize(window, &wwidth, &wheight);
+    glm_ortho(0.0, wwidth, wheight, 0.0, -1.0, 10.0, proj); // TODO: Window component
+    glUniformMatrix4fv(glGetUniformLocation(renderer->shader.programId, "projection"), 1, false, proj[0]);
+
+
+    for (int i = 0; i < it->count; i++)
+    {
+        const c2v coords[4] = {{0, 0}, {texture[i].width, 0}, {0, texture[i].height}, {0, 0}};
+        vec2 screenOffsets[4] = {{0, -6}, {6, 0}, {0, 6}, {-6, 0}};
+        const c2v scales[4] = {{camera->scale, 1.0/texture[i].height}, {1.0/texture[i].width, camera->scale}, {camera->scale, 1.0/texture[i].height}, {1.0/texture[i].width, camera->scale}};
+        float widthRatio = texture[i].width/(float)texture[i].pow_w;
+        const vec4 boxes[4] = {{0.0, 0.0, 1.0, 1.0/texture[i].height}, 
+        {texture[i].width/(float)texture[i].pow_w - 1.0/texture[i].pow_w, 0.0, 1.0/texture[i].width, 1.0}, 
+        {0.0, texture[i].height/(float)texture[i].pow_h - 1.0/texture[i].pow_h, 1.0, 1.0/texture[i].height}, 
+        {0.0, 0.0, 1.0/texture[i].width, 1.0}};
+        // printf("Rendering sprite %f\n", it->world_time);
+
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, texture[i].id);
+        glBindVertexArray(renderer->quadVAO);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, renderer->indexBuffer);
+        for (int e = 0; e < 4; e++)
+        {
+            mat4 model;
+            glm_mat4_identity(model);
+            vec2 offset = {transform[i].pos[0] + coords[e].x, transform[i].pos[1] + coords[e].y, 0.0f};
+            vec2 screen;
+            world_to_screen(camera->view, offset, screen);
+            glm_vec2_add(screen, screenOffsets[e], screen);
+            glm_translate(model, screen);
+            vec3 scale = {texture[i].pow_w / texture[i].scale[0] * scales[e].x, texture[i].pow_h / texture[i].scale[1] * scales[e].y, 1.0};
+            glm_scale(model, scale);
+            glUniformMatrix4fv(glGetUniformLocation(renderer->shader.programId, "model"), 1, false, model[0]);
+            // vec4 box = {10.0, 0.0, texture->surface->w, texture->surface->h};
+            glUniform4f(glGetUniformLocation(renderer->shader.programId, "box"), boxes[e][0], boxes[e][1], boxes[e][2], boxes[e][3]);
+            glUniform2f(glGetUniformLocation(renderer->shader.programId, "scale"), 1.0, 1.0);
+            glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, (void*) 0);
+        }
+        glBindVertexArray(0);
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }    
 }
 
 void ResetCursor(ecs_iter_t* it)
@@ -1476,8 +1533,9 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, EndNanoVGFrame, EcsPostUpdate, renderer:NanoVG);
     ECS_SYSTEM(world, RenderDragHover, EcsPostUpdate, renderer:NanoVG, input:DragHover);
     ECS_SYSTEM(world, MoveDragSelector, EcsOnUpdate, input:DragSelector, input:EventMouseMotion);
-    ECS_SYSTEM(world, RenderSelectionIndicators, EcsPostUpdate, renderer:NanoVG, renderer:Camera, Transform2D, Texture2D, Selected); 
+    // ECS_SYSTEM(world, RenderSelectionIndicators, EcsPostUpdate, renderer:NanoVG, renderer:Camera, Transform2D, Texture2D, Selected); 
     ECS_SYSTEM(world, RenderActionIndicators, EcsPostUpdate, renderer:NanoVG, renderer:Camera, Transform2D, CircleActionIndicator);
+    ECS_SYSTEM(world, RenderImageSelectionIndicators, EcsPostUpdate, renderer:Camera, renderer:BatchSpriteRenderer, Transform2D, Texture2D, Selected);
     ECS_SYSTEM(world, RenderDragSelector, EcsPostUpdate, renderer:NanoVG, input:DragSelector);
     ECS_SYSTEM(world, LoadClipboardFiles, EcsOnUpdate, input:EventMouseButton);
     ECS_SYSTEM(world, UpdateCursorAction, EcsOnUpdate, renderer:Camera, input:EventMouseMotion, CircleActionIndicator, Transform2D, !input:ActionOnMouseInput);
