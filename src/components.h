@@ -154,6 +154,7 @@ ECS_COMPONENT_DECLARE(NanoVG);
 typedef struct {
     c2Circle bounds;
     int cursorType;
+    int op;
     vec2 screenOffset;
     ecs_entity_t symbol;
     NVGcolor color;
@@ -165,6 +166,7 @@ typedef struct {
     ecs_entity_t symbol;
     int op;
     vec2 origin;
+    vec2 startScale;
 } ActionOnMouseInput;
 ECS_COMPONENT_DECLARE(ActionOnMouseInput);
 
@@ -172,6 +174,12 @@ enum Operations
 {
     SCALE_UPPER_LEFT,
     SCALE_UPPER_RIGHT,
-    SCALE_LOWER_LEFT,
     SCALE_LOWER_RIGHT,
+    SCALE_LOWER_LEFT,
 };
+
+typedef struct
+{
+    float horizontal, vertical;
+} Anchor;
+ECS_COMPONENT_DECLARE(Anchor);
