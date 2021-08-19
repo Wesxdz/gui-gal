@@ -851,8 +851,8 @@ void MoveDragSelector(ecs_iter_t* it)
     DragSelector* selector = ecs_term(it, DragSelector, 1);
     EventMouseMotion* event = ecs_term(it, EventMouseMotion, 2);
 
-    selector->w += event->delta[0];
-    selector->h += event->delta[1];
+    selector->w = event->pos[0] - selector->x;
+    selector->h = event->pos[1] - selector->y;
 }
 
 void ScaleVisualSymbol(ecs_iter_t* it)
@@ -886,13 +886,11 @@ void MouseAffectAction(ecs_iter_t* it)
     {
         if (it->entities[i] == action->symbol)
         {
-            // size of a pixel in world space?
             vec2 cursorWorldPos;
             screen_to_world(camera->view, event->pos, cursorWorldPos);
             vec2 diff;
 
-            printf("Operation %d\n", action[i].op);
-            if (action[i].op == SCALE_LOWER_RIGHT)
+            if (action->op == SCALE_LOWER_RIGHT)
             {
                 glm_vec2_sub(cursorWorldPos, transform[i].pos, diff);
                 vec2 ratio = {diff[0]/texture[i].width, diff[1]/texture[i].height};
@@ -901,7 +899,7 @@ void MouseAffectAction(ecs_iter_t* it)
                 texture[i].scale[0] = greater;
                 texture[i].scale[1] = greater;
             } 
-            else if (action[i].op == SCALE_LOWER_LEFT)
+            else if (action->op == SCALE_LOWER_LEFT)
             {
                 vec2 opposite = {action->origin[0] + texture[i].width/action->startScale[0], action->origin[1]};
                 diff[0] = cursorWorldPos[0] - (opposite[0]);
@@ -913,7 +911,7 @@ void MouseAffectAction(ecs_iter_t* it)
                 texture[i].scale[1] = greater;
                 transform[i].pos[0] = opposite[0] - texture[i].width/greater;
             }
-            else if (action[i].op == SCALE_UPPER_RIGHT)
+            else if (action->op == SCALE_UPPER_RIGHT)
             {
                 vec2 opposite = {action->origin[0], action->origin[1] + texture[i].height/action->startScale[1]};
                 diff[0] = cursorWorldPos[0] - transform[i].pos[0];
@@ -925,7 +923,7 @@ void MouseAffectAction(ecs_iter_t* it)
                 texture[i].scale[1] = greater;
                 transform[i].pos[1] = opposite[1] - texture[i].height/greater;
             } 
-            else if (action[i].op == SCALE_UPPER_LEFT)
+            else if (action->op == SCALE_UPPER_LEFT)
             {
                 vec2 opposite = {action->origin[0] + texture[i].width/action->startScale[0], action->origin[1] + texture[i].height/action->startScale[1]};
                 diff[0] = cursorWorldPos[0] - opposite[0];
@@ -1428,6 +1426,20 @@ void ResetCursor(ecs_iter_t* it)
     if (!action || !action->active)
     {
         ecs_remove(it->world, input, ActionOnMouseInput);
+        // ecs_query_t* query = ecs_query_new(world, "Grabbed");
+        // ecs_iter_t qIt = ecs_query_iter(query);
+        // size_t totalGrabbed = 0;
+        // while (ecs_query_next(&qIt)) 
+        // {
+        //     totalGrabbed += qIt.count;
+        // }
+        // if (totalGrabbed > 0)
+        // {
+        //     GLFWcursor* cursor = glfwCreateStandardCursor(GLFW_HAND_CURSOR);
+        //     glfwSetCursor(window, cursor);
+        // } else
+        // {
+        // }
         glfwSetCursor(window, NULL);
     }
 }
@@ -1604,7 +1616,7 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, StartNanoVGFrame, EcsPreFrame, renderer:NanoVG);
     ECS_SYSTEM(world, EndNanoVGFrame, EcsPostUpdate, renderer:NanoVG);
     ECS_SYSTEM(world, RenderDragHover, EcsPostUpdate, renderer:NanoVG, input:DragHover);
-    ECS_SYSTEM(world, MoveDragSelector, EcsPreUpdate, input:DragSelector, input:EventMouseMotion);
+    ECS_SYSTEM(world, MoveDragSelector, EcsOnUpdate, input:DragSelector, input:EventMouseMotion);
     
     ECS_SYSTEM(world, AnchorPropagate, EcsPreUpdate, CASCADE:Transform2D, PARENT:Texture2D, Transform2D, Anchor);
     
