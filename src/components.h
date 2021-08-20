@@ -183,3 +183,18 @@ typedef struct
     float horizontal, vertical;
 } Anchor;
 ECS_COMPONENT_DECLARE(Anchor);
+
+typedef struct
+{
+    char* path;
+} LocalFilePath;
+ECS_DECLARE_COMPONENT(LocalFilePath);
+
+typedef struct
+{
+    size_t index;
+    size_t capacity;
+    size_t count;
+    ecs_snapshot_t** snapshots;
+} CommandBuffer;
+ECS_DECLARE_COMPONENT(CommandBuffer);

@@ -277,6 +277,8 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 {
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
         glfwSetWindowShouldClose(window, GLFW_TRUE);
+    
+    printf("Key callback\n");
     ecs_set(world, input, EventKey, {window, key, scancode, action, mods});
     ecs_set_pair(world, input, ConsumeEvent, ecs_id(EventKey), {});
 }
@@ -724,7 +726,7 @@ void ConsumeEvents(ecs_iter_t* it)
     {
         ecs_remove_id(it->world, it->entities[i], comp);
         ecs_remove_id(it->world, it->entities[i], pair);
-        // printf("Consume event!\n");
+        // printf("Consume event at %f\n", it->world_time);
     }
 }
 
@@ -775,11 +777,42 @@ void CameraCalculateView(ecs_iter_t* it)
     }
 }
 
+void push_command(CommandBuffer* buffer, ecs_snapshot_t* snapshot)
+{
+    buffer->snapshots[buffer->index] = snapshot;
+    buffer->index++;
+    buffer->index %= buffer->capacity;
+    buffer->count++;
+    printf("Pushed command! %d\n", buffer->index);
+}
+
+void undo_command(ecs_world_t* world, CommandBuffer* buffer)
+{
+    if (buffer->count > 0)
+    {
+        buffer->index--;
+        if (buffer->index < 0) buffer->index = 0;
+        ecs_snapshot_restore(world, buffer->snapshots[buffer->index]);
+        buffer->count--;
+    }
+}
+
+void UndoCommand(ecs_iter_t* it)
+{
+    EventKey* event = ecs_term(it, EventKey, 1);
+    CommandBuffer* buffer = ecs_term(it, CommandBuffer, 2);
+    if (event->key == GLFW_KEY_Z && event->mods & GLFW_MOD_CONTROL)
+    {
+        undo_command(it->world, buffer);
+    }
+}
+
 void MoveGrabbedTransforms(ecs_iter_t* it)
 {
     Camera* camera = ecs_term(it, Camera, 1);
     EventMouseMotion* motion = ecs_term(it, EventMouseMotion, 2);
     Transform2D* transform = ecs_term(it, Transform2D, 3);
+
     for (int32_t i = 0; i < it->count; i++)
     {
         vec2 worldPosLast;
@@ -808,6 +841,7 @@ void GrabMoveCamera(ecs_iter_t* it)
 void UnGrab(ecs_iter_t* it)
 {
     EventMouseButton* mouse = ecs_term(it, EventMouseButton, 1);
+
     if (mouse->button == GLFW_MOUSE_BUTTON_LEFT && mouse->action == GLFW_RELEASE)
     {
         ecs_defer_begin(it->world);
@@ -1055,13 +1089,30 @@ void TransformCascadeHierarchy(ecs_iter_t* it)
     }
 }
 
+void add_command_on_grab(ecs_world_t* world, CommandBuffer* buffer)
+{
+    // Create filter from just the grabbed transforms!
+    ecs_filter_t filter = {
+        .include = ecs_type(Transform2D),
+        .include_kind = EcsMatchAll
+    };
+    ecs_iter_t change = ecs_filter_iter(world, &filter);
+
+    push_command(buffer, ecs_snapshot_take_w_iter(&change, ecs_filter_next));
+}
+
 void SelectVisualSymbolQuery(ecs_iter_t* it)
 {
     // printf("Select visual symbol\n");
     Camera* camera = ecs_term(it, Camera, 1);
     EventMouseButton* event = ecs_term(it, EventMouseButton, 2);
-    DragSelector* selector = ecs_term(it, DragSelector, 3);
+    DragSelector* selector = NULL;
+    if (ecs_has(it->world, input, DragSelector))
+    {
+        selector = ecs_get_mut(it->world, input, DragSelector, NULL);
+    };
     bool isDragSelected = selector != NULL;
+    CommandBuffer* buffer = ecs_term(it, CommandBuffer, 3);
 
     ecs_defer_begin(it->world);
     if (event->button == GLFW_MOUSE_BUTTON_LEFT)
@@ -1112,6 +1163,7 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
         }
         if (event->action == GLFW_PRESS)
         {
+            printf("Select query start %f", it->world_time);
             double xpos, ypos;
             glfwGetCursorPos(event->window, &xpos, &ypos);
             vec2 screenPos = {xpos, ypos};
@@ -1166,6 +1218,7 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
                     {
                         ecs_add(it->world, curSelectedNodes[i], Grabbed);
                     }
+                    add_command_on_grab(it->world, buffer);
                 } else
                 { 
                     if (toSelectCount > 0)
@@ -1182,9 +1235,9 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
                             ecs_defer_end(children.world);
                             ecs_remove(it->world, curSelectedNodes[i], Selected);
                         }
-                        printf("Select query execute at %f!\n", it->world_time);
                         select_visual_symbol(it->world, toSelectNodes[0]);
                         ecs_add(it->world, toSelectNodes[0], Grabbed);
+                        add_command_on_grab(it->world, buffer);
                     } else
                     {
                         for (int32_t i = 0; i < curSelectedCount; i++)
@@ -1203,6 +1256,7 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
                     }
                 }
             }
+            printf(", Select query end %f\n", it->world_time);
         }
 
     }
@@ -1361,6 +1415,19 @@ void RenderSelectionIndicators(ecs_iter_t* it)
     nvgClosePath(nano->vg);
     // glEnable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
+}
+
+void AllocCommandBuffer(ecs_iter_t* it)
+{
+    CommandBuffer* buffer = ecs_term(it, CommandBuffer, 1);
+    printf("Allocate %d\n", buffer->capacity);
+    buffer->snapshots = malloc(sizeof(ecs_snapshot_t*) * buffer->capacity);
+}
+
+void DeallocCommandBuffer(ecs_iter_t* it)
+{
+    CommandBuffer* buffer = ecs_term(it, CommandBuffer, 1);
+    free(buffer->snapshots);
 }
 
 void RenderImageSelectionIndicators(ecs_iter_t* it)
@@ -1548,6 +1615,7 @@ int main(int argc, char const *argv[])
     ECS_COMPONENT_DEFINE(world, Local2D);
     ECS_COMPONENT_DEFINE(world, ActionOnMouseInput);
     ECS_COMPONENT_DEFINE(world, Anchor);
+    ECS_COMPONENT_DEFINE(world, CommandBuffer);
     ECS_TAG_DEFINE(world, Grabbed);
     ECS_TAG_DEFINE(world, DragHover);
     
@@ -1558,6 +1626,9 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, SetupCamera, EcsOnSet, Camera);
     ECS_SYSTEM(world, SetInitialMultitexture, EcsOnSet, Texture2D, MultiTexture2D);
     ECS_SYSTEM(world, deallocate_texture, EcsOnRemove, Texture2D);
+    ECS_SYSTEM(world, AllocCommandBuffer, EcsOnSet, CommandBuffer);
+    ECS_SYSTEM(world, DeallocCommandBuffer, EcsOnRemove, CommandBuffer);
+
     IMG_Init(IMG_INIT_JPG | IMG_INIT_PNG | IMG_INIT_WEBP);
     glfwInit();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
@@ -1594,11 +1665,12 @@ int main(int argc, char const *argv[])
     // glEnable(GL_DEPTH_TEST);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-
     renderer = ecs_set_name(world, 0, "renderer");
     ecs_set(world, renderer, Camera, {1.0});
     ecs_set(world, renderer, BatchSpriteRenderer, {});
     ecs_set(world, renderer, NanoVG, {nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES | NVG_DEBUG)});
+
+    ecs_set(world, input, CommandBuffer,  {0, 100, 0, NULL});
 
     ECS_SYSTEM(world, ResetCursor, EcsPreFrame, EventMouseMotion);
     ECS_SYSTEM(world, AnimateGif, EcsPreUpdate, GifAnimator, Texture2D, MultiTexture2D);
@@ -1607,7 +1679,7 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, GrabMoveCamera, EcsPreUpdate, renderer:Camera, input:EventMouseMotion);
     ECS_SYSTEM(world, ScrollZoomCamera, EcsPreUpdate, renderer:Camera, input:EventScroll);
     ECS_SYSTEM(world, CameraCalculateView, EcsOnUpdate, Camera);
-    ECS_SYSTEM(world, SelectVisualSymbolQuery, EcsPreUpdate, renderer:Camera, input:EventMouseButton, ?DragSelector, !input:ActionOnMouseInput, [out] :*); //  [in] :Transform2D, [in] :Transform2D, [out] :Selected, [out] :Grabbed
+    ECS_SYSTEM(world, SelectVisualSymbolQuery, EcsPreUpdate, renderer:Camera, input:EventMouseButton, CommandBuffer, !input:ActionOnMouseInput, [inout] :*);
     ECS_SYSTEM(world, MoveGrabbedTransforms, EcsPreFrame, renderer:Camera, input:EventMouseMotion, Transform2D, Grabbed);
     ECS_SYSTEM(world, ConsumeEvents, EcsPostFrame, (ConsumeEvent, *));
     ECS_SYSTEM(world, UnGrab, EcsOnUpdate, input:EventMouseButton, Grabbed);
@@ -1617,6 +1689,7 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, EndNanoVGFrame, EcsPostUpdate, renderer:NanoVG);
     ECS_SYSTEM(world, RenderDragHover, EcsPostUpdate, renderer:NanoVG, input:DragHover);
     ECS_SYSTEM(world, MoveDragSelector, EcsOnUpdate, input:DragSelector, input:EventMouseMotion);
+    ECS_SYSTEM(world, UndoCommand, EcsOnUpdate, input:EventKey, CommandBuffer);
     
     ECS_SYSTEM(world, AnchorPropagate, EcsPreUpdate, CASCADE:Transform2D, PARENT:Texture2D, Transform2D, Anchor);
     
