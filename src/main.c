@@ -1098,9 +1098,8 @@ void add_command_on_grab(ecs_iter_t* it, CommandBuffer* buffer)
     // };
     // ecs_iter_t change = ecs_filter_iter(world, &filter);
     // ecs_snapshot_take_w_iter(&change, ecs_filter_next)
-    printf("What??\n");
     // ecs_snapshot_t *s = ecs_snapshot_take_w_iter(&it, ecs_snapshot_next);
-    ecs_snapshot_t *s = ecs_snapshot_take(it->world);
+    ecs_snapshot_t *s = ecs_snapshot_take(it->world); // <--- crashes here
     push_command(buffer, s);
 }
 
@@ -1221,7 +1220,7 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
                     {
                         ecs_add(it->world, curSelectedNodes[i], Grabbed);
                     }
-                    add_command_on_grab(&qIt, buffer);
+                    add_command_on_grab(it, buffer);
                 } else
                 {
                     if (toSelectCount > 0)
@@ -1240,7 +1239,7 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
                         }
                         select_visual_symbol(it->world, toSelectNodes[0]);
                         ecs_add(it->world, toSelectNodes[0], Grabbed);
-                        add_command_on_grab(&qIt, buffer);
+                        add_command_on_grab(it, buffer);
                     } else
                     {
                         for (int32_t i = 0; i < curSelectedCount; i++)
