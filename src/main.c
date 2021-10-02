@@ -324,7 +324,7 @@ bool create_texture(const char* file, ecs_entity_t entity, unsigned int* twidth,
     return true;
 }
 
-void create_multitexture_from_gif(GifFileType* gif, ecs_entity_t entity, SDL_Surface* firstFrame)
+void create_multitexture_from_gif(GifFileType* gif, ecs_entity_t entity, SDL_Surface** firstFrame)
 {
     GLuint* ids = malloc(sizeof(GLuint) * gif->ImageCount);
     SavedImage* prevSaved = &gif->SavedImages[gif->ImageCount - 2];
@@ -524,14 +524,14 @@ void create_multitexture_from_gif(GifFileType* gif, ecs_entity_t entity, SDL_Sur
         printf("%d bits per pixel\n", colorMap->BitsPerPixel);
         printf("Gif image desc is (%d, %d)\n", desc->Width, desc->Height);
         // SDL_Surface *img_rgba8888
-        firstFrame = SDL_CreateRGBSurfaceFrom(pixelBuffer, gif->SWidth, gif->SHeight,
+        *firstFrame = SDL_CreateRGBSurfaceFrom(pixelBuffer, gif->SWidth, gif->SHeight,
         bpp, 4, Rmask, Gmask, Bmask, Amask);
-        SDL_SetSurfaceAlphaMod(firstFrame, 0xFF);
-        SDL_SetSurfaceBlendMode(firstFrame, SDL_BLENDMODE_NONE);
+        SDL_SetSurfaceAlphaMod(*firstFrame, 0xFF);
+        SDL_SetSurfaceBlendMode(*firstFrame, SDL_BLENDMODE_NONE);
         glBindTexture(GL_TEXTURE_2D, ids[i]);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, pow_w, pow_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, clearSurface);
         // (pow_w - gif->SWidth)/2.0 (pow_h - gif->SHeight)/2.0
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0.0, 0.0, gif->SWidth, gif->SHeight, GL_RGBA, GL_UNSIGNED_BYTE, firstFrame->pixels);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0.0, 0.0, gif->SWidth, gif->SHeight, GL_RGBA, GL_UNSIGNED_BYTE, (*firstFrame)->pixels);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
         glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -632,7 +632,7 @@ void LoadDroppedFiles(ecs_iter_t* it)
                 DGifSlurp(gif); // TODO: Move logic to GifAnimator system
                 printf("Gif has %d images!\n" ,gif->ImageCount);
                 SDL_Surface* firstFrame;
-                create_multitexture_from_gif(gif, node, firstFrame);
+                create_multitexture_from_gif(gif, node, &firstFrame);
                 ecs_set(world, node, Texture2D, {NULL, nearest_pow2(gif->SWidth), nearest_pow2(gif->SHeight), gif->SWidth, gif->SHeight, {1.0, 1.0}, firstFrame});
                 // printf("%d stbi frame count!\n", z);
                 twidth = gif->SWidth; theight = gif->SHeight;
