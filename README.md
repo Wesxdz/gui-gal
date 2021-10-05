@@ -20,6 +20,7 @@
 #### Roadmap
 * Symbol graph persistence (component and system module saving/loading, interoperable resource format import/export (like html or tiff))
 * Graphic file system query navigation
+* Replace OpenGL renderer with Vulkan
 * Hot reload modified assets and code
 * Visual symbol eye candy (round corners, custom shader composition)
 * Game underlay UX (interacting with a distinct flecs world as a symbol, wearenotart demo)
@@ -28,6 +29,7 @@
 * Video symbol
 * Web editor
 * Cloud project syncing
-* local speech recognition dep
+* local speech recognition dep (silero-models)
 * local object detection search dep (probably Darknet YOLO or PyTorch)
+* IsItPixelArt (automate image scaling algorithm selection)
 * ECS port of FreeCAD
