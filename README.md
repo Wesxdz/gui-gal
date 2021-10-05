@@ -19,6 +19,7 @@
 
 #### Roadmap
 * Symbol graph persistence (component and system module saving/loading, interoperable resource format import/export (like html or tiff))
+* Graphic file system query navigation
 * Hot reload modified assets and code
 * Visual symbol eye candy (round corners, custom shader composition)
 * Game underlay UX (interacting with a distinct flecs world as a symbol, wearenotart demo)
