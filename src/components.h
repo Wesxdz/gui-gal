@@ -6,9 +6,13 @@
 
 typedef struct
 {
+    float interpTime;
     float scale;
+    float targetScale;
     vec2 pos;
+    vec2 targetPos;
     mat4 view;
+    mat4 targetView;
 } Camera;
 ECS_COMPONENT_DECLARE(Camera);
 
@@ -106,6 +110,8 @@ ECS_COMPONENT_DECLARE(Selected);
 
 ECS_TAG_DECLARE(Grabbed);
 ECS_TAG_DECLARE(DragHover);
+ECS_TAG_DECLARE(TakeSnapshot);
+ECS_TAG_DECLARE(SnapshotTarget);
 
 // Input
 typedef struct {
@@ -186,15 +192,18 @@ ECS_COMPONENT_DECLARE(Anchor);
 
 typedef struct
 {
-    char* path;
-} LocalFilePath;
-ECS_DECLARE_COMPONENT(LocalFilePath);
-
-typedef struct
-{
+    int time_step;
     size_t index;
     size_t capacity;
     size_t count;
     ecs_snapshot_t** snapshots;
 } CommandBuffer;
-ECS_DECLARE_COMPONENT(CommandBuffer);
+
+typedef struct
+{
+    char* path;
+    // TODO: Format?
+} SavedData;
+ECS_COMPONENT_DECLARE(SavedData);
+
+ECS_TAG_DECLARE(BrowseDirectory);

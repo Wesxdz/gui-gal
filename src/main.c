@@ -1,7 +1,7 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <stdio.h>
-#include <flecs.h>
+#include "flecs.h"
 #include <SDL2/SDL_image.h>
 #include <string.h>
 #include <gif_lib.h>
@@ -175,6 +175,7 @@ void SetupBatchRenderer(ecs_iter_t* it)
 
 GLFWwindow* window;
 ecs_world_t* world;
+CommandBuffer buffer;
 ecs_entity_t renderer;
 ecs_entity_t input;
 
@@ -315,8 +316,8 @@ bool create_texture(const char* file, ecs_entity_t entity, unsigned int* twidth,
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, img->w, img->h, GL_RGBA, GL_UNSIGNED_BYTE, img_rgba8888->pixels);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-    glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     // SDL_FreeSurface(img);
     SDL_FreeSurface(img_rgba8888);
     ecs_set(world, entity, Texture2D, {id, pow_w, pow_h, img->w, img->h, {1.0, 1.0}, img});
@@ -534,8 +535,8 @@ void create_multitexture_from_gif(GifFileType* gif, ecs_entity_t entity, SDL_Sur
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0.0, 0.0, gif->SWidth, gif->SHeight, GL_RGBA, GL_UNSIGNED_BYTE, (*firstFrame)->pixels);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-        glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         memmove(pixelBuffer2, pixelBuffer1, bufferSize);
         memmove(pixelBuffer1, pixelBuffer, bufferSize);
         shiftBufferCount += 2;
@@ -572,98 +573,109 @@ void LoadClipboardFiles(ecs_iter_t* it)
     const char* clipboard = glfwGetClipboardString(window);
 }
 
+ecs_entity_t load_visual_symbol(ecs_world_t* s_world, char* path)
+{
+    ecs_entity_t node;
+    struct stat info;
+    bool validPath = stat(path, &info) == 0;
+    bool isDirectory = (S_ISDIR(info.st_mode));
+    printf("%s\n", path);
+    if (!validPath)
+    {
+        printf("Not valid path\n");
+        // Can something be loaded from a URL?
+        curl_global_init(CURL_GLOBAL_ALL);
+        CURL* curl = curl_easy_init();
+        if (curl)
+        {
+            CURLcode res;
+            FILE* fp;
+            char* filename;
+            char* c_path [FILENAME_MAX];
+            strcpy(c_path, path);
+            char* pch = strtok(c_path, "/");
+            while (pch != NULL)
+            {
+                filename = pch;
+                pch = strtok(NULL, "/");
+            }
+            fp = fopen(filename, "w");
+
+            printf("Creating file %s\n", filename);
+            curl_easy_setopt(curl, CURLOPT_URL, path);
+            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, NULL);
+            curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
+            res = curl_easy_perform(curl);
+            printf("Curl code %d\n", res);
+            
+            // TODO: Curl get first image from non-image html element?
+            curl_easy_cleanup(curl);
+            fclose(fp);
+            strcpy(path, filename);
+            printf("%s\n", path);
+            curl_global_cleanup();
+        }
+    }
+    if (isDirectory) return node;
+    int error;
+    GifFileType* gif = DGifOpenFileName(path, &error);
+    bool isGif = gif != NULL;
+    printf("%p:%d\n", (void*)gif, error);
+
+    if (!isDirectory)
+    {
+        node = ecs_new_id(s_world);
+        double xpos, ypos;
+        glfwGetCursorPos(window, &xpos, &ypos);
+        unsigned int twidth, theight;
+        if (isGif)
+        {
+            DGifSlurp(gif); // TODO: Move logic to GifAnimator system
+            printf("Gif has %d images!\n" ,gif->ImageCount);
+            SDL_Surface* firstFrame;
+            create_multitexture_from_gif(gif, node, &firstFrame);
+            ecs_set(s_world, node, Texture2D, {NULL, nearest_pow2(gif->SWidth), nearest_pow2(gif->SHeight), gif->SWidth, gif->SHeight, {1.0, 1.0}, firstFrame});
+            // printf("%d stbi frame count!\n", z);
+            twidth = gif->SWidth; theight = gif->SHeight;
+            if (gif->ImageCount > 1)
+            {
+                ecs_set(s_world, node, GifAnimator, {gif, 24, 0.0, 0}); // data, delays, y, comp
+            }
+        } else
+        {
+            printf("Loading %s\n", path);
+            bool created = create_texture(path, node, &twidth, &theight);
+            if (!created) return node;
+        }
+        const Camera* camera = ecs_get(s_world, renderer, Camera);
+        vec4 t;
+        mat4 r;
+        vec3 s;
+        glm_decompose(camera->view, t, r, s);
+        vec3 inverse_s = {1.0/s[0], 1.0/s[1], 1.0/s[2]};
+        xpos *= inverse_s[0];
+        ypos *= inverse_s[1];
+        vec2 translate;
+        glm_vec2_copy(camera->view[3], translate);
+        glm_vec2_mul(translate, inverse_s, translate);
+        vec2 screen = {xpos - twidth/2.0, ypos - theight/2};
+        vec2 position;
+        memset(position, 0, sizeof(vec2));
+        glm_vec2_sub(screen, translate, position);
+        ecs_set(s_world, node, Transform2D, {{position[0], position[1]}, 0.0f, 1.0f, 0});
+        ecs_set(s_world, node, Local2D, {0, 0});
+        ecs_set(s_world, node, LocalFile, {path});
+    }
+    return node;
+}
+
 void LoadDroppedFiles(ecs_iter_t* it)
 {
     EventDropFiles* drop = ecs_term(it, EventDropFiles, 1);
+    printf("Load dropped files\n");
     for (int i = 0; i < drop->count; i++)
     {
-        printf("Load dropped files\n");
-        struct stat info;
-        bool validPath = stat(drop->paths[i], &info) == 0;
-        bool isDirectory = (S_ISDIR(info.st_mode));
-        printf("%s\n", drop->paths[i]);
-        if (!validPath)
-        {
-            // Can something be loaded from a URL?
-            curl_global_init(CURL_GLOBAL_ALL);
-            CURL* curl = curl_easy_init();
-            if (curl)
-            {
-                CURLcode res;
-                FILE* fp;
-                char* path [FILENAME_MAX];
-                strcpy(path, drop->paths[i]);
-                char* pch = strtok(path, "/");
-                char* filename;
-                while (pch != NULL)
-                {
-                    filename = pch;
-                    pch = strtok(NULL, "/");
-                }
-                fp = fopen(filename, "w");
-
-                printf("Creating file %s\n", drop->paths[i]);
-                curl_easy_setopt(curl, CURLOPT_URL, drop->paths[i]);
-                curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, NULL);
-                curl_easy_setopt(curl, CURLOPT_WRITEDATA, fp);
-                res = curl_easy_perform(curl);
-                printf("Curl code %d\n", res);
-
-                curl_easy_cleanup(curl);
-                fclose(fp);
-                drop->paths[i] = filename;
-                curl_global_cleanup();
-            }
-        }
-        if (isDirectory) continue;
-        int error;
-        GifFileType* gif = DGifOpenFileName(drop->paths[i], &error);
-        bool isGif = gif != NULL;
-        printf("%p:%d\n", (void*)gif, error);
-
-        if (!isDirectory)
-        {
-            ecs_entity_t node = ecs_new_id(world);
-            double xpos, ypos;
-            glfwGetCursorPos(window, &xpos, &ypos);
-            unsigned int twidth, theight;
-            if (isGif)
-            {
-                DGifSlurp(gif); // TODO: Move logic to GifAnimator system
-                printf("Gif has %d images!\n" ,gif->ImageCount);
-                SDL_Surface* firstFrame;
-                create_multitexture_from_gif(gif, node, &firstFrame);
-                ecs_set(world, node, Texture2D, {NULL, nearest_pow2(gif->SWidth), nearest_pow2(gif->SHeight), gif->SWidth, gif->SHeight, {1.0, 1.0}, firstFrame});
-                // printf("%d stbi frame count!\n", z);
-                twidth = gif->SWidth; theight = gif->SHeight;
-                if (gif->ImageCount > 1)
-                {
-                    ecs_set(world, node, GifAnimator, {gif, 24, 0.0, 0}); // data, delays, y, comp
-                }
-            } else
-            {
-                printf("Loading %s\n", drop->paths[i]);
-                bool created = create_texture(drop->paths[i], node, &twidth, &theight);
-                if (!created) continue;
-            }
-            const Camera* camera = ecs_get(world, renderer, Camera);
-            vec4 t;
-            mat4 r;
-            vec3 s;
-            glm_decompose(camera->view, t, r, s);
-            vec3 inverse_s = {1.0/s[0], 1.0/s[1], 1.0/s[2]};
-            xpos *= inverse_s[0];
-            ypos *= inverse_s[1];
-            vec2 translate;
-            glm_vec2_copy(camera->view[3], translate);
-            glm_vec2_mul(translate, inverse_s, translate);
-            vec2 screen = {xpos - twidth/2.0, ypos - theight/2};
-            vec2 position;
-            glm_vec2_sub(screen, translate, position);
-            ecs_set(world, node, Transform2D, {{position[0], position[1]}, 0.0f, 1.0f, 0});
-            ecs_set(world, node, Local2D, {0, 0});
-            ecs_set(world, node, LocalFile, {drop->paths[i]});
-        }
+        load_visual_symbol(it->world, drop->paths[i]);
     }
     free(drop->paths); // TODO: Move to another system and free unused paths
 }
@@ -762,11 +774,18 @@ void calc_view(Camera* camera)
     vec3 eye = {0.0f, 0.0f, 0.0};
     vec3 center = {0.0, 0.0, -1.0};
     vec3 up = {0.0, 1.0, 0.0};
+
     glm_lookat(eye, center, up, camera->view);
     vec3 pos = {camera->pos[0], camera->pos[1], 0.0};
     glm_translate(camera->view, pos);
     vec3 scale = {camera->scale, camera->scale, 1.0};
     glm_scale(camera->view, scale);
+
+    glm_lookat(eye, center, up, camera->targetView);
+    vec3 pos2 = {camera->targetPos[0], camera->targetPos[1], 0.0};
+    glm_translate(camera->targetView, pos2);
+    vec3 scale2 = {camera->targetScale, camera->targetScale, 1.0};
+    glm_scale(camera->targetView, scale2);
 }
 
 void CameraCalculateView(ecs_iter_t* it)
@@ -789,6 +808,7 @@ void push_command(CommandBuffer* buffer, ecs_snapshot_t* snapshot)
 
 void undo_command(ecs_world_t* world, CommandBuffer* buffer)
 {
+    // Delay snapshot restore to outside world.progress()
     if (buffer->count > 0)
     {
         buffer->index--;
@@ -796,15 +816,16 @@ void undo_command(ecs_world_t* world, CommandBuffer* buffer)
         ecs_snapshot_restore(world, buffer->snapshots[buffer->index]);
         buffer->count--;
     }
+    buffer->time_step++;
 }
 
 void UndoCommand(ecs_iter_t* it)
 {
+    printf("Undo command!\n");
     EventKey* event = ecs_term(it, EventKey, 1);
-    CommandBuffer* buffer = ecs_term(it, CommandBuffer, 2);
-    if (event->key == GLFW_KEY_Z && event->mods & GLFW_MOD_CONTROL)
+    if (event->key == GLFW_KEY_Z && event->mods & GLFW_MOD_CONTROL && event->action == GLFW_PRESS)
     {
-        undo_command(it->world, buffer);
+        buffer.time_step--;
     }
 }
 
@@ -835,7 +856,7 @@ void GrabMoveCamera(ecs_iter_t* it)
     int state = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE);
     if (state == GLFW_PRESS)
     {
-        glm_vec2_add(camera->pos, motion->delta, camera->pos);
+        glm_vec2_add(camera->targetPos, motion->delta, camera->targetPos);
     }
 }
 
@@ -1055,12 +1076,41 @@ void SaveProjectShortcut(ecs_iter_t* it)
     EventKey* event = ecs_term(it, EventKey, 1);
     if (event->key == GLFW_KEY_S && event->mods & GLFW_MOD_CONTROL)
     {
-        printf("Save!");
+        printf("Save!\n");
+        ecs_entity_t t = ecs_struct_init(it->world, &(ecs_struct_desc_t) {
+            .entity.name = "T",
+            .members = {
+                "path", {ecs_id(ecs_string_t)}
+            }
+        });
+        ecs_query_t* query = ecs_query_new(world, "Transform2D, LocalFile");
+        ecs_iter_t qIt = ecs_query_iter(world, query);
+
+        size_t visualSymbolCount = 0;
+        while (ecs_query_next(&qIt))
+        {
+            Transform2D* transform = ecs_term(&qIt, Transform2D, 1);
+            LocalFile* file = ecs_term(&qIt, LocalFile, 2);
+            for (int32_t i = 0; i < qIt.count; i++)
+            {
+                printf("%s", file[i].path);
+                LocalFile value = {"Test"};
+                char *expr = ecs_ptr_to_json(qIt.world, t, &file[i]);
+                // char* expr = ecs_ptr_to_json(qIt.world, qIt.entities[i], &file[i]);
+                printf("%s\n", expr);
+            }
+        }
     }
 }
 
-void save_project_to_file(const char* file)
+void save_project_to_file(ecs_world_t* save_world, const char* save_file)
 {
+    ecs_snapshot_t* save = ecs_snapshot_take(save_world);
+    void* save_file_target;
+    ecs_os_fopen(&save_file_target, save_file, "w");
+    // ecs_snapshot_take_w_iter()
+    // ecs_ptr_to_expr()
+    // save->serialize()
 
 }
 
@@ -1106,16 +1156,15 @@ void TransformCascadeHierarchy(ecs_iter_t* it)
 
 void add_command_on_grab(ecs_iter_t* it, CommandBuffer* buffer)
 {
-    // Create filter from just the grabbed transforms!
-    // ecs_filter_t filter = {
-    //     .include = ecs_type(Transform2D),
-    //     .include_kind = EcsMatchAll
-    // };
-    // ecs_iter_t change = ecs_filter_iter(world, &filter);
-    // ecs_snapshot_take_w_iter(&change, ecs_filter_next)
-    // ecs_snapshot_t *s = ecs_snapshot_take_w_iter(&it, ecs_snapshot_next);
-    ecs_snapshot_t *s = ecs_snapshot_take(it->world);
-    push_command(buffer, s);
+        // ecs_filter_t filter;
+        // ecs_filter_init(world, &filter, &(ecs_filter_desc_t) {
+        //     .terms = {{ ecs_id(Selected) } }
+        // });
+        // ecs_iter_t change = ecs_filter_iter(world, &filter);
+        // ecs_snapshot_t *s = ecs_snapshot_take_w_iter(&change, ecs_filter_next);
+        // // ecs_snapshot_t *s = ecs_snapshot_take(world);
+        // push_command(&buffer, s);
+    // ecs_add(it->world, input, TakeSnapshot);
 }
 
 void SelectVisualSymbolQuery(ecs_iter_t* it)
@@ -1129,7 +1178,6 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
         selector = ecs_get_mut(it->world, input, DragSelector, NULL);
     };
     bool isDragSelected = selector != NULL;
-    CommandBuffer* buffer = ecs_term(it, CommandBuffer, 3);
 
     ecs_defer_begin(it->world);
     if (event->button == GLFW_MOUSE_BUTTON_LEFT)
@@ -1231,11 +1279,11 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
             {
                 if (grabSelected)
                 {
+                    add_command_on_grab(it, &buffer);
                     for (int32_t i = 0; i < curSelectedCount; i++)
                     {
                         ecs_add(it->world, curSelectedNodes[i], Grabbed);
                     }
-                    add_command_on_grab(it, buffer);
                 } else
                 {
                     // Deselect nodes
@@ -1254,9 +1302,9 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
                     }
                     if (toSelectCount > 0)
                     {
+                        add_command_on_grab(it, &buffer);
                         select_visual_symbol(it->world, toSelectNodes[0]);
                         ecs_add(it->world, toSelectNodes[0], Grabbed);
-                        add_command_on_grab(it, buffer);
                     } else
                     {
                         ecs_set(it->world, input, DragSelector, {xpos, ypos, 0, 0});
@@ -1327,20 +1375,19 @@ void ScrollZoomCamera(ecs_iter_t* it)
 
     int wwidth, wheight;
     glfwGetWindowSize(scroll->window, &wwidth, &wheight);
-
+ 
     // vec2 cursorScreenPos = {wwidth/2.0 - xpos, wheight/2.0 - ypos};
     vec2 cursorScreenPos = {xpos, ypos};
     vec2 cursorWorldPos;
-    screen_to_world(camera->view, cursorScreenPos, cursorWorldPos);
-    float lastScale = camera->scale;
-    camera->scale = c2Clamp(camera->scale + scroll->yoffset * 0.10 * camera->scale, 0.1, 10.0);
+    screen_to_world(camera->targetView, cursorScreenPos, cursorWorldPos);
+    camera->targetScale = c2Clamp(camera->targetScale + scroll->yoffset * 0.10 * camera->targetScale, 0.1, 10.0);
     calc_view(camera);
 
     vec2 cursorNewWorldPos;
-    screen_to_world(camera->view, cursorScreenPos, cursorNewWorldPos);
+    screen_to_world(camera->targetView, cursorScreenPos, cursorNewWorldPos);
 
-    vec2 diff = {camera->scale * (cursorWorldPos[0] - cursorNewWorldPos[0]), camera->scale * (cursorWorldPos[1] - cursorNewWorldPos[1])};
-    glm_vec2_sub(camera->pos, diff, camera->pos);
+    vec2 diff = {camera->targetScale * (cursorWorldPos[0] - cursorNewWorldPos[0]), camera->targetScale * (cursorWorldPos[1] - cursorNewWorldPos[1])};
+    glm_vec2_sub(camera->targetPos, diff, camera->targetPos);
     calc_view(camera);
 }
 
@@ -1365,6 +1412,28 @@ void EndNanoVGFrame(ecs_iter_t* it)
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glDisable(GL_DEPTH_TEST);
+}
+
+// https://www.iquilezles.org/www/articles/functions/functions.htm
+float gain(float x, float k) 
+{
+    const float a = 0.5*pow(2.0*((x<0.5)?x:1.0-x), k);
+    return (x<0.5)?a:1.0-a;
+}
+
+float interp(float a, float b, float p)
+{
+    return (a * (1.0 - p) + b * p);
+}
+
+void InterpolateCamera(ecs_iter_t* it)
+{
+    Camera* camera = ecs_term(it, Camera, 1);
+    float p = fmin(1.0, it->delta_time/camera->interpTime);
+    printf("%f\n", p);
+    camera->scale = interp(camera->scale, camera->targetScale, p);
+    camera->pos[0] = interp(camera->pos[0], camera->targetPos[0], p);
+    camera->pos[1] = interp(camera->pos[1], camera->targetPos[1], p);
 }
 
 void RenderSelectionIndicators(ecs_iter_t* it)
@@ -1422,19 +1491,6 @@ void RenderSelectionIndicators(ecs_iter_t* it)
     nvgClosePath(nano->vg);
     // glEnable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
-}
-
-void AllocCommandBuffer(ecs_iter_t* it)
-{
-    CommandBuffer* buffer = ecs_term(it, CommandBuffer, 1);
-    printf("Allocate %d\n", buffer->capacity);
-    buffer->snapshots = malloc(sizeof(ecs_snapshot_t*) * buffer->capacity);
-}
-
-void DeallocCommandBuffer(ecs_iter_t* it)
-{
-    CommandBuffer* buffer = ecs_term(it, CommandBuffer, 1);
-    free(buffer->snapshots);
 }
 
 void RenderImageSelectionIndicators(ecs_iter_t* it)
@@ -1518,6 +1574,38 @@ void ResetCursor(ecs_iter_t* it)
     }
 }
 
+#include <dirent.h>
+// #include <limits.h>
+
+void ApparateVisualSymbols(ecs_iter_t* it)
+{
+    SavedData* data = ecs_term(it, SavedData, 2);
+    DIR* dir = opendir(data->path);
+    struct dirent* next;
+    char buf[FILENAME_MAX];
+    strcat(buf, data->path);
+    size_t index = strlen(data->path);
+    Transform2D* lastTrans = NULL;
+    Texture2D* lastTexture = NULL;
+    size_t symbol_count = 0;
+    ecs_entity_t test[100];
+    while ((next = readdir(dir)) != NULL)
+    {
+        strcat(buf, next->d_name);
+        printf("Path is %s\n", buf);
+        ecs_entity_t node = load_visual_symbol(it->world, buf);
+        if (ecs_is_valid(it->world, node))
+        {
+            test[symbol_count] = node;
+            symbol_count++;
+        }
+        memset(&buf[index], 0, sizeof(next->d_name));
+    }
+    closedir(dir);
+    
+    ecs_delete(it->world, it->entities[0]);
+}
+
 void RenderActionIndicators(ecs_iter_t* it)
 {
     NanoVG* nano = ecs_term(it, NanoVG, 1);
@@ -1599,6 +1687,10 @@ void cursor_position_callback(GLFWwindow* window, double xpos, double ypos)
 
 int main(int argc, char const *argv[])
 {
+    buffer.index = 0;
+    buffer.count = 0;
+    buffer.capacity = 100;
+    buffer.snapshots = malloc(sizeof(ecs_snapshot_t*) * buffer.capacity);
     world = ecs_init();
     ECS_COMPONENT_DEFINE(world, Camera);
     ECS_COMPONENT_DEFINE(world, CameraController);
@@ -1622,9 +1714,11 @@ int main(int argc, char const *argv[])
     ECS_COMPONENT_DEFINE(world, Local2D);
     ECS_COMPONENT_DEFINE(world, ActionOnMouseInput);
     ECS_COMPONENT_DEFINE(world, Anchor);
-    ECS_COMPONENT_DEFINE(world, CommandBuffer);
+    ECS_COMPONENT_DEFINE(world, SavedData);
     ECS_TAG_DEFINE(world, Grabbed);
     ECS_TAG_DEFINE(world, DragHover);
+    ECS_TAG_DEFINE(world, TakeSnapshot);
+    ECS_TAG_DEFINE(world, BrowseDirectory);
 
     // ECS_IMPORT(world, InputModule);
     input = ecs_set_name(world, 0, "input");
@@ -1633,9 +1727,8 @@ int main(int argc, char const *argv[])
     ECS_OBSERVER(world, SetupCamera, EcsOnSet, Camera);
     ECS_OBSERVER(world, SetInitialMultitexture, EcsOnSet, Texture2D, MultiTexture2D);
     ECS_OBSERVER(world, deallocate_texture, EcsOnRemove, Texture2D);
-    ECS_OBSERVER(world, AllocCommandBuffer, EcsOnSet, CommandBuffer);
-    ECS_OBSERVER(world, DeallocCommandBuffer, EcsOnRemove, CommandBuffer);
     ECS_OBSERVER(world, LoadDroppedFiles, EcsOnSet, EventDropFiles);
+    ECS_OBSERVER(world, ApparateVisualSymbols, EcsOnSet, BrowseDirectory, SavedData, [inout] *());
 
     IMG_Init(IMG_INIT_JPG | IMG_INIT_PNG | IMG_INIT_WEBP);
     glfwInit();
@@ -1674,11 +1767,17 @@ int main(int argc, char const *argv[])
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     renderer = ecs_set_name(world, 0, "renderer");
-    ecs_set(world, renderer, Camera, {1.0});
+    ecs_set(world, renderer, Camera, {0.05f, 1.0, 1.0, {0.0f, 0.0f}, {0.0f, 0.0f}});
     ecs_set(world, renderer, BatchSpriteRenderer, {});
     ecs_set(world, renderer, NanoVG, {nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES | NVG_DEBUG)});
 
-    ecs_set(world, input, CommandBuffer,  {0, 100, 0, NULL});
+    if (argc > 1)
+    {
+        ecs_entity_t nav_command = ecs_new_id(world);
+        ecs_add(world, nav_command, Transform2D);
+        ecs_add(world, nav_command, BrowseDirectory);
+        ecs_set(world, nav_command, SavedData, {argv[1]});
+    }
 
     ECS_SYSTEM(world, ResetCursor, EcsPreFrame, EventMouseMotion);
     ECS_SYSTEM(world, AnimateGif, EcsPreUpdate, GifAnimator, Texture2D, MultiTexture2D);
@@ -1687,7 +1786,7 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, GrabMoveCamera, EcsPreUpdate, Camera(renderer), EventMouseMotion(input));
     ECS_SYSTEM(world, ScrollZoomCamera, EcsPreUpdate, Camera(renderer), EventScroll(input));
     ECS_SYSTEM(world, CameraCalculateView, EcsOnUpdate, Camera);
-    ECS_SYSTEM(world, SelectVisualSymbolQuery, EcsPreUpdate, Camera(renderer), EventMouseButton(input), CommandBuffer, !ActionOnMouseInput(input), [inout] *());
+    ECS_SYSTEM(world, SelectVisualSymbolQuery, EcsPreUpdate, Camera(renderer), EventMouseButton(input), !ActionOnMouseInput(input), [inout] *());
     ECS_SYSTEM(world, MoveGrabbedTransforms, EcsPreFrame, Camera(renderer), EventMouseMotion(input), Transform2D, Grabbed);
     ECS_SYSTEM(world, ConsumeEvents, EcsPostFrame, (ConsumeEvent, *));
     ECS_SYSTEM(world, UnGrab, EcsOnUpdate, EventMouseButton(input), Grabbed);
@@ -1696,8 +1795,9 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, EndNanoVGFrame, EcsPostUpdate, NanoVG(renderer));
     ECS_SYSTEM(world, RenderDragHover, EcsPostUpdate, NanoVG(renderer), DragHover(input));
     ECS_SYSTEM(world, MoveDragSelector, EcsOnUpdate, DragSelector(input), EventMouseMotion(input));
-    ECS_SYSTEM(world, UndoCommand, EcsOnUpdate, EventKey(input), CommandBuffer, [inout]Transform2D);
-    ECS_SYSTEM(world, SaveProjectShortcut, EcsPostUpdate, EventKey(input));
+    ECS_SYSTEM(world, UndoCommand, EcsOnUpdate, EventKey(input));
+    ECS_SYSTEM(world, SaveProjectShortcut, EcsPostUpdate, EventKey(input), [inout] *());
+    ECS_SYSTEM(world, InterpolateCamera, EcsPostUpdate, Camera);
 
     ECS_SYSTEM(world, AnchorPropagate, EcsPreUpdate, ?Transform2D(parent|cascade), Texture2D(parent), Transform2D, Anchor);
 
@@ -1715,16 +1815,35 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, MouseAffectAction, EcsOnUpdate, EventMouseMotion(input), ActionOnMouseInput(input), Camera(renderer), Transform2D, Texture2D);
 
     glfwShowWindow(window);
-
+    
     while (!glfwWindowShouldClose(window))
     {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
         glfwPollEvents();
         ecs_progress(world, 0);
+        if (ecs_has(world, input, TakeSnapshot))
+        {
+            ecs_remove(world, input, TakeSnapshot);
+            // Create filter from just the grabbed transforms!
+
+            ecs_filter_t filter;
+            ecs_filter_init(world, &filter, &(ecs_filter_desc_t) {
+                .terms = {{ ecs_id(Selected) } }
+            });
+            ecs_iter_t change = ecs_filter_iter(world, &filter);
+            ecs_snapshot_t *s = ecs_snapshot_take_w_iter(&change, ecs_filter_next);
+            // ecs_snapshot_t *s = ecs_snapshot_take(world);
+            push_command(&buffer, s);
+        }
+        while (buffer.time_step < 0)
+        {
+            undo_command(world, &buffer);
+        }
         glfwSwapBuffers(window);
     }
     glfwDestroyWindow(window);
     glfwTerminate();
+    free(buffer.snapshots);
     ecs_fini(world);
     // nvgDeleteGL3(vg);
     return 0;
