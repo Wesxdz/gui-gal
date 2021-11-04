@@ -1167,6 +1167,59 @@ void add_command_on_grab(ecs_iter_t* it, CommandBuffer* buffer)
     // ecs_add(it->world, input, TakeSnapshot);
 }
 
+void OpenSymbolPath(ecs_iter_t* it)
+{
+    Camera* camera = ecs_term(it, Camera, 1);
+    EventMouseButton* event = ecs_term(it, EventMouseButton, 2);
+    if (event->action == GLFW_PRESS && event->button == GLFW_MOUSE_BUTTON_RIGHT)
+    {
+        printf("Open symbolPath\n");
+        ecs_query_t* query = ecs_query_new(world, "Transform2D, Texture2D, LocalFile");
+        ecs_iter_t qIt = ecs_query_iter(it->world, query);
+
+        size_t visualSymbolCount = 0;
+        while (ecs_query_next(&qIt))
+        {
+            visualSymbolCount += qIt.count;
+        }
+        ecs_entity_t indication;
+        qIt = ecs_query_iter(it->world, query);
+        double xpos, ypos;
+        glfwGetCursorPos(event->window, &xpos, &ypos);
+        vec2 screenPos = {xpos, ypos};
+        vec2 worldPos;
+        screen_to_world(camera->view, screenPos, worldPos);
+        while (ecs_query_next(&qIt))
+        {
+            Transform2D* transform = ecs_term(&qIt, Transform2D, 1);
+            Texture2D* texture = ecs_term(&qIt, Texture2D, 2);
+            LocalFile* file = ecs_term(&qIt, LocalFile, 3);
+
+            for (int32_t i = 0; i < qIt.count; i++)
+            {
+                vec2 dist = {0.0f, 0.0f};
+                glm_vec2_sub(worldPos, transform[i].pos, dist);
+                printf("Check within\n");
+                if (dist[0] > 0.0 && dist[0] <= texture[i].width / texture[i].scale[0] &&
+                dist[1] > 0.0 && dist[1] <= texture[i].height / texture[i].scale[1])
+                {
+                    indication = qIt.entities[i];
+                    char command[2048];
+                    sprintf(command, "xdg-open \"%s\"", file[i].path);
+                    system(command);
+                    break;
+                }
+            }
+            if (!ecs_is_valid(qIt.world, indication))
+            {
+                break;
+            }
+        }
+
+
+    }
+}
+
 void SelectVisualSymbolQuery(ecs_iter_t* it)
 {
     // printf("Select visual symbol\n");
@@ -1430,7 +1483,6 @@ void InterpolateCamera(ecs_iter_t* it)
 {
     Camera* camera = ecs_term(it, Camera, 1);
     float p = fmin(1.0, it->delta_time/camera->interpTime);
-    printf("%f\n", p);
     camera->scale = interp(camera->scale, camera->targetScale, p);
     camera->pos[0] = interp(camera->pos[0], camera->targetPos[0], p);
     camera->pos[1] = interp(camera->pos[1], camera->targetPos[1], p);
@@ -1786,7 +1838,8 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, GrabMoveCamera, EcsPreUpdate, Camera(renderer), EventMouseMotion(input));
     ECS_SYSTEM(world, ScrollZoomCamera, EcsPreUpdate, Camera(renderer), EventScroll(input));
     ECS_SYSTEM(world, CameraCalculateView, EcsOnUpdate, Camera);
-    ECS_SYSTEM(world, SelectVisualSymbolQuery, EcsPreUpdate, Camera(renderer), EventMouseButton(input), !ActionOnMouseInput(input), [inout] *());
+    ECS_SYSTEM(world, SelectVisualSymbolQuery, EcsPreUpdate, Camera(renderer), EventMouseButton(input), [inout] *());
+    ECS_SYSTEM(world, OpenSymbolPath, EcsPreUpdate, Camera(renderer), EventMouseButton(input), !ActionOnMouseInput(input), [inout] *());
     ECS_SYSTEM(world, MoveGrabbedTransforms, EcsPreFrame, Camera(renderer), EventMouseMotion(input), Transform2D, Grabbed);
     ECS_SYSTEM(world, ConsumeEvents, EcsPostFrame, (ConsumeEvent, *));
     ECS_SYSTEM(world, UnGrab, EcsOnUpdate, EventMouseButton(input), Grabbed);
