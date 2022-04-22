@@ -20,6 +20,7 @@
 #### Roadmap
 * Symbol graph persistence (component and system module saving/loading, interoperable resource format import/export (like html or tiff))
 * Graphic file system query navigation
+* Image layout/packing algorithms
 * Replace OpenGL renderer with Vulkan
 * Hot reload modified assets and code
 * Visual symbol eye candy (round corners, custom shader composition)
@@ -27,9 +28,8 @@
 * Reverse engineer PureRef save format and create coverter
 * libclang runtime (live component and system manipulation)
 * Video symbol
-* Web editor
-* Cloud project syncing
 * local speech recognition dep (silero-models)
 * local object detection search dep (probably Darknet YOLO or PyTorch)
 * IsItPixelArt (automate image scaling algorithm selection)
-* ECS port of FreeCAD
+* OpenSCAD IDE with raytracing visualization
+* Explore FPGA based neural architecture search function training
