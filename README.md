@@ -27,7 +27,6 @@
 * Digital human of Gui
 * Image layout/packing algorithms
 * 3D image projection
-* 
 * Replace OpenGL renderer with Vulkan
 * Hot reload modified assets and code
 * Visual symbol eye candy (round corners, custom shader composition)
