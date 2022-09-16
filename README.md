@@ -20,7 +20,14 @@
 #### Roadmap
 * Symbol graph persistence (component and system module saving/loading, interoperable resource format import/export (like html or tiff))
 * Graphic file system query navigation
+* Stable diffusion outpainting
+* Integration with Flit's system loop builder
+* Continous learning recommendation CNN
+* Neural network physics simulation layer
+* Digital human of Gui
 * Image layout/packing algorithms
+* 3D image projection
+* 
 * Replace OpenGL renderer with Vulkan
 * Hot reload modified assets and code
 * Visual symbol eye candy (round corners, custom shader composition)
