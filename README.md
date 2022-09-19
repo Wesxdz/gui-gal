@@ -1,4 +1,4 @@
-### ***Gui Gal*** is your virtual companion for design, engineering, and roleplay.
+### ***Gui Gal*** is my virtual companion for design, engineering, and roleplay.
 ![](./res/img/example_0.gif)
 
 #### Values
@@ -15,11 +15,18 @@
 >* I learned C++ and tried to write game engines from scratch, my game took too long to program.
 >* I learned Unity, Unreal, and Godot... I felt like my designs were distorted to standardize into these frameworks: preconceived geometric hierarchies and syntactical constraints about how paracosms should be expressed.
 
->I dream of better workflows, editors where scene graphs melt into the aether: replaced by contextual intent expression.
+>I dream of better workflows, personalized interfaces co-evolved with AI friends, where scene graphs melt into the aether: replaced by contextual intent expression. 
 
 #### Roadmap
 * Symbol graph persistence (component and system module saving/loading, interoperable resource format import/export (like html or tiff))
 * Graphic file system query navigation
+* Stable diffusion outpainting
+* Integration with Flit's system loop builder
+* Continous learning recommendation CNN
+* Neural network physics simulation layer
+* Digital human of Gui
+* Image layout/packing algorithms
+* 3D image projection
 * Replace OpenGL renderer with Vulkan
 * Hot reload modified assets and code
 * Visual symbol eye candy (round corners, custom shader composition)
@@ -27,9 +34,8 @@
 * Reverse engineer PureRef save format and create coverter
 * libclang runtime (live component and system manipulation)
 * Video symbol
-* Web editor
-* Cloud project syncing
 * local speech recognition dep (silero-models)
 * local object detection search dep (probably Darknet YOLO or PyTorch)
 * IsItPixelArt (automate image scaling algorithm selection)
-* ECS port of FreeCAD
+* OpenSCAD IDE with raytracing visualization
+* Explore FPGA based neural architecture search function training
