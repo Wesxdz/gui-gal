@@ -96,6 +96,11 @@ typedef struct {
 } DragSelector;
 ECS_COMPONENT_DECLARE(DragSelector);
 
+typedef struct {
+    float w, h;
+} PaintFrame;
+ECS_COMPONENT_DECLARE(PaintFrame);
+
 typedef struct
 {
     float width, height;
@@ -122,7 +127,10 @@ ECS_COMPONENT_DECLARE(ConsumeEvent);
 // Should GLFWwindow be included in events?
 typedef struct {
     GLFWwindow* window;
-    int button, action, mods;
+    int button;
+    int action; 
+    int mods;
+    bool consumed;
 } EventMouseButton;
 ECS_COMPONENT_DECLARE(EventMouseButton);
 

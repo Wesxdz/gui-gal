@@ -1,0 +1,53 @@
+Primary author/maintainer: "Stewart Adcock" <stewart@linux-domain.com>
+
+Stewart is grateful to all users who have provided comments, compilation reports, bug reports, patches and donations (not necessarily in that order).  While this is not an exhaustive list, he would like to specifically thank the following people:
+
+Prior to release 0.1850:
+Andrew W. Nosenko - Provided a large set of excellent patches to fix a multitude of mostly minor, but not insignificant, problems.
+Al Cripps - Constructive bug reports with suggested fixes.
+
+Prior to release 0.1849:
+Al Cripps - Suggested fixes and compilation instructions for MS VC++.
+Marie-Pierre Brungard - Patch for building DLLs.
+Johannes Zellner - Constructive bug reports.
+Andrew W. Nosenko - sincos() typo patch.
+
+Prior to release 0.1848:
+Al Cripps - Suggested fix in memory_chunks.c for MS VC++.
+
+Prior to release 0.1847:
+Dave Wilkinson - Compilation reports for IRIX and Solaris.
+Syrrx, Inc. - More dollars :-)
+CTBP (http://ctbp.ucsd.edu/) - Computing resources.
+SGI, Inc. - Access to an Altix 3200 for porting and benchmarking.
+
+Prior to release 0.1846:
+Ying-Chieh Liao - Patch for stdbool.h include on FreeBSD.
+
+Prior to release 0.1845:
+Gad Abraham - Testing Debian package.
+Henk van Lingen - ga_crossover_bitstring_doublepoints() and ga_bit_copy() bug reports.
+
+Prior to release 0.1843:
+Kalin Kozhuharov - HP-UX/MPP and Hitachi SR8000 testing and compilation reports.
+
+Prior to release 0.1842:
+McKenzie Keith - Providing Cygwin binaries.  Reporting MingW issues.
+Ben Webb - Tesing Cygwin binaries.
+Kate Mullen - Simulated annealling documentation.
+
+Prior to release 0.1841:
+Daniel Pick - Bug reports and fix.
+McKenzie Keith - Windows DLL compilation.
+
+Prior to release 0.1840:
+Antti Akonniemi - MacOS X compilation report.
+Mark T. Richardson - QNX V6 compilation report.
+
+Prior to release 0.1839:
+Syrrx, Inc. - Dollars :-)
+
+Prior to release 0.1838:
+Stepan Harbek - Cygwin compilation reports and tips.
+Sourceforge (http://sourceforge.net/) - Hosting services.
+

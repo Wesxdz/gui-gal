@@ -1,0 +1,74 @@
+Roadmap upto version 1.0 
+========================
+
+GAUL may be considered to have a stable API (i.e. code written to use
+the current routines should also work with the future version 1.0 beside
+possible small changes in the API that may be deemed important by the
+developers).
+
+These milestone requirements are subject to change ;)
+
+ Milestone  |  Required Additions (besides bug fixes)
+------------+--------------------------------------------------------
+ 0.1851     |  Move prototypes for all public functions into src/gaul.h
+            |  Mersenne twister for PRNG.
+            |  Ant colony optimisation?
+            |  Particle swarm optimisation?
+            |  Use native qsort() function -- need to incorporate a patch that has been provided.
+            |  Callback for survival/elitism?
+------------+--------------------------------------------------------
+ 0.1852     |  Boolean chromosome example from Mitchell book.
+            |  More on-line/off-line statistics options.
+            |  User data in array, not list.
+            |  More test code.
+            |  Binary tree chromosome.
+            |  Operator functions for the linked-list chromosome.
+            |  Linked-list chromosome example.
+            |  De Jong - working examples.
+            |  More replacement operators.
+            |  Replacement operators documentation
+            |  Rewritten convergence testing functions.
+------------+--------------------------------------------------------
+ 0.1853     |  Cellular GAs?
+            |  Parallel search heuristics (i.e., Parallel Tabu-search etc.)
+            |  Genetic programming example.
+            |  ES examples.
+------------+--------------------------------------------------------
+ 0.1854     |  Tidy and rationalise S-Lang interface, and provide examples.
+            |  Checkpoint files.
+------------+--------------------------------------------------------
+ 0.1855     |  Remove feature "FIXME's"
+            |  Remove optimisation "FIXME's"
+            |  Remove all bugs ;-)
+------------+--------------------------------------------------------
+ 0.1856     |  Offer Windows DLLs with installer.
+            |  Complete reference documentation.
+            |  Complete tutorial articles.
+------------+--------------------------------------------------------
+
+Additional features needed for version 1.0:
+
+* Brief guide to S-Lang.
+* S-Lang extension example.
+* S-Lang embedding example.
+* Run-time control of statistic collection.
+* More run-time checking.
+* GAUL-Perl interface.
+
+Optional Features for version 1.0, or (more likely) later:
+
+* Messy GA example.
+* Non-cyclic migration topologies (migration operators).
+* Additional local search algorithms.
+* GUI "workbench" interface.
+* Langauge bindings.
+* Similarity function callbacks.
+
+Features to be added if enough interest is demonstrated:
+* DEE algorithm.
+* PVM support.
+* Replica-exchange SA search.
+* EDAs.
+
+Stewart Adcock, 14 Apr 2005.
+

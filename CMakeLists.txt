@@ -18,7 +18,13 @@ include_directories("deps/curl/include")
 # include_directories("deps/SDL_image")
 include_directories("deps/giflib-5.2.1")
 include_directories("deps/nanovg/src")
-include_directories("deps/flecs-2.4.0/include")
+include_directories("deps/flecs/include")
+include_directories("deps/gaul/src")
+include_directories("deps/gaul/util")
+
+# Embed Python for Stable Diffusion
+# https://docs.python.org/3/extending/embedding.html
+include_directories("/home/aeri/miniconda3/include/python3.8")
 
 set(GLAD_GL "deps/glad/include/glad/glad.h"
             "deps/glad/src/glad.c")
@@ -27,12 +33,16 @@ file(GLOB_RECURSE NANOVG "deps/nanovg/src/*c")
 
 file(GLOB_RECURSE SOURCES "${SOURCE_PATH}/*.c")
 
-add_subdirectory("deps/flecs-2.4.0")
+find_package(Vulkan)
+
+add_subdirectory("deps/flecs")
 add_subdirectory("deps/glfw")
 add_subdirectory("deps/cglm")
 # add_subdirectory("deps/curl")
 
 link_directories("deps/giflib-5.2.1")
+link_directories("deps/gaul/util/.libs")
+link_directories("deps/gaul/src/.libs")
 
 # file(GLOB_RECURSE GIFLIB_SOURCES "deps/giflib-5.2.1/*.c")
 # add_library(giflib SHARED GIFLIB_SOURCES)
@@ -40,4 +50,4 @@ link_directories("deps/giflib-5.2.1")
 
 
 add_executable(${EDITOR_NAME} ${SOURCES} ${GLAD_GL} ${NANOVG})
-target_link_libraries(${EDITOR_NAME} glfw SDL2 SDL2_image flecs gif curl)
+target_link_libraries(${EDITOR_NAME} glfw SDL2 SDL2_image flecs gif curl gaul gaul_util python3.8)

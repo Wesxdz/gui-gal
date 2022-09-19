@@ -1,0 +1,359 @@
+Changes since release 0.1849:
+- Differential evolution parameters copied along with populations.
+- Checks added around all memory allocations.
+- Support for vector fitnesses added.
+- Multi-objective GA varients added.
+- S-lang intrinsic ga_entity_set_fitness() added.
+- HAVE_* and USE_* constants behave according to usual autotool standards -- patches provided by Andrew W. Nosenko.
+- GA_NUM_*_ENVVAR_STRING environment variables now consistent -- patch provided by Andrew W. Nosenko.
+- Numerous bug-fixes and compiler warning fixes -- patches and suggested fixes provided by Andrew W. Nosenko and Al Cripps.
+- S-Lang interpreter not used by default.
+- Added ga_population_set_data_managed() for easier management of population-wide data storage -- based on patch by Andrew W. Nosenko.
+- Ported to MS Visual Studio; Windows build files added to distribution.
+
+Changes since release 0.1848:
+- Changes required for compilation with MS VC++ -- thanks to Al Cripps.
+- Added support for user defined ranking callback.
+- Added differential evolution algorithm and associated examples.
+- Added ga_population_get_island() function.
+- GARank callback added along with built-in ga_rank_fitness().
+- Support for differential evolution algorithm added.
+- Optimisation of alternative search functions when applied to double-array chromosomes.
+- Fixed bug in src/ga_intrinsics.c - minimum fitness was stored in int not double.
+- Removed debugging messages from the simplex code.
+- Split the gaul-devel archive/package into seperate gaul-devel (containing libs and tests) and gaul-examples (containing example programs).
+- Some example programs renamed.
+- A few further test programs added.
+- Removed redundant gaul/ga_utility.h header.
+- Removed use of C++ reserved words.
+
+Changes since release 0.1847:
+- Roulette wheel and Stochastic Universal Sampling selection functions are now thread safe.
+- Minor changes to avoid some compiler warnings with various compilers, particularly the Compaq C/C++ compiler and gcc 3.4.2.
+- Minor changes for successful building of RPM for x86_64 architecture.
+- Added ga_genocide_by_fitness() function.
+- Handle invalid entities correctly/cleanly in all evolutionary functions.
+- Fixed bug in configuration to use certian MPI implementations, including MPICH.
+- Fixed bug that assumed fitness mean was always zero in some statistics functions.
+- Added a round-robin selection operator - ga_select_one_roundrobin().
+- Fixed CFLAG clearing bug and added option for disabling addition of compiler optimisation switches.
+- Added ga_seed_bitstring_zero() seed function.
+- Updated function lookup tables.
+- Fixed bug in ga_select_one_roundrobin() for case that mutation rate is greater than one.
+- *** API CHANGE *** ga_entity_setup() removed from public API.
+- Added a set of new genome comparison functions.
+- Fixed goldberg1 and goldberg2 examples which had suffered from bit-rot!
+- Added a new example program, examples/all5s.
+- A double-linked-list built-in chromosome type added (No genesis or GA operator functions yet).
+- Added experimental efficient memory handling code for chromosomes (Disabled by default, however).
+- All mentions of the outdated V3_QUICK preprocessor constant removed.
+- Added autogen.sh script to distribution.
+- Probable bug in memory_chunks.c fixed -- thanks to Al Cripps.
+- Support for adjustable allele mutation probabilities; added ga_population_set_allele_mutation_prob() and ga_population_get_allele_mutation_prob() functions and examples/royalroad_mutation_prob_demo demonstration program; Deprecated use of the GA_MULTI_BIT_CHANCE constant.  Default behaviour is unchanged.
+- The default crossover, mutation and migration ratios are now 0.9, 0.1 and 0.1, respectively, instead of all being 1.0.
+- It is no longer essential for ga_population_set_parameters() (or any equivalent) to be called prior to any of the evolution functions.
+- No longer include the obsolete values.h header.
+- Allow user to specify ranges for integer and double-precision chromosomes without creating custom chromosomes, along with example for demonstration examples/all5s_allele_ranges.c.
+- Move location of the actual population seeding process from the genesis routines, to the evolution routines.  This has the benefit of GAUL now automatically seeding populations if user doesn't use the genesis or seed functions.
+- ga_evolution_archipelago_threaded() implemented.
+- ga_evolution_archipelago_mpi() implemented.
+
+Changes since release 0.1846:
+- Removed the unused string handling and manipulation functions.
+- Tweaked the bitstring code.
+- Added ga_mutate_printable_allpoint() mutation function.
+- Added ga_mutate_bitstring_multipoint() mutation function.
+- Added ga_mutate_double_allpoint() mutation function.
+- Added ga_mutate_double_multipoint() mutation function.
+- Use of MPI for parallel processing now more seamless.
+- The (incomplete) support for use of PVM for parallel processing removed completely.
+- Several unused or unneeded portions of code culled.
+- More careful with includes.
+- Only use pthread library for thread support.
+- Rewritten MPI/thread checks and configuration.
+- Avoid stricmp()/strnicmp() kludges for Cygwin environment by using strcasecmp()/strncasecmp() instead.
+- Culled redundant comments in code, mostly "last updated" type of details.  Also, fixed/clarified some incorrect comments.
+- Changed license/copyright details in util/gaul/gaul_util.h
+- Added ga_select_one_linearrank() and ga_select_two_linearrank(), a selection operator based on a linear probability distribution with respect to rank.
+- Fixed incorrect inclusion of stdbool.h on FreeBSD.  -- patch submitted by Ying-Chieh Liao.
+- Changes for clean compilation with gcc 3.2 and cleaner compilation with some other more obscure compilers.
+- AMD64 fixes.
+- Tweaked fitting, fitting_sd and fitting_simplex examples.
+- Added two new selection criteria, based on Stochastic Universal Sampling; ga_select_one_sussq() and ga_select_two_sussq().  These select entities with probability proportional to their squared fitness.
+- *** API CHANGE *** ga_genesis_int() renamed to ga_genesis_integer() for consistency with remainder of integer function names.
+- *** API CHANGE *** Initial step size for simplex added to ga_population_set_simplex_parameters() parameters.
+- Fixed long-standing memory chunk bug exhibited on Solaris, IRIX, HP/UX and possibly other (64-bit) OSes.
+- Fixed compilation on IRIX with the MIPSpro compiler.
+- Added missing struggle_threaded example source, discussed in the tutorial.
+- Altered error messages that mentioned the deprecated ga_genesis() function.
+- Various fixes for using native Windows I/O functions on Windows platforms.
+- Avoid the use of several reserved C keywords/identifiers in source.
+- Added a configure option to make use of Intel's icc compiler's autoparallelisation features more easily.
+- Added sanity checking into the ga_get_entity_from_rank() function.
+- Deleted code relating to usused ga_genesis_t and deprecated soup files.
+- ga_compare_genome(), ga_count_match_alleles(), ga_genome_hamming_similarity() and ga_genome_euclidian_similarity() functions deprecated.
+- Some OpenMP-based parallelisation added as an alternative to pthreads.
+- New ga_evolution_mpi() function for simple MPI use.  Associated example, examples/struggle_mpi.c, added.
+- Added new selection operators: ga_select_one_bestof3() and ga_select_two_bestof3().  Fixed potential bug in ga_select_two_bestof2().
+- Removed all references to the deprecated constants GA_ELITISM_CONSTANT and GA_ELITISM_MULTIPLIER.
+- Renamed the "diagnostics" test execuatable to "gaul_diagnostics" to avoid potential name clash.
+- Added two new crossover operators: ga_crossover_double_mean() and ga_crossover_integer_mean().
+
+Changes since release 0.1845:
+- Use ISO C99 style variadic argument macros instead of GCC extension style variadic argument macros.
+- Removed presence of ophan ';'s to make source (closer to being) ISO C99 compliant.
+- Fixed grey-encoded bitstring bug.
+- Coded a minimal test suite.  examples/diagnostics stripped down and included as part of this suite now.
+- Removed use of the deprecated ga_genesis() function from the examples.
+- Added the common "onemax" GA test as an example program.
+- Prepended "GA_" to some constants' names to reduce occurrance of clashes with external code.
+- Removed unused dynamic string handling code.
+- Removed unused binary tree code.
+- Applied the minor changes required for compilation with Dev-C++ on MS Windows.
+- Split disk i/o functions into their own source file to facilitate a future native windows port.
+- Added versions of disk i/o functions using MS Windows API instead of POSIX API.
+- Added dummy function to display message if ga_evolution_threaded() not compiled.
+- Added a couple of missing S-Lang intrinsic functions.
+- Added S-Lang test/example code, tests/test_slang.c and tests/test_slang.sl.
+- Prevent some deprecated functions from being compiled.  (Source still exists, so people that _really_ need these may still access them.  For now.)
+- Fixed occassional segfault in deterministic crowding code.
+- Completely avoid mutation and crossover loops if the respective probabilites are set to zero.
+- Added examples/mixed.c, an example of mixed chromosome types.
+- Minor fix for detecting S-Lang on Alpha platform with RedHat 7.1.
+
+Changes since release 0.1844:
+- Added some checks in PRNG code to avoid trying to calculate modulus of zero.
+- Reorganisation of installed header files to avoid config.h clashes, along with configuration improvements.
+- Header files now installed in a subdirectory of the include dir.
+- Improved timer code.
+- Portability improvements through addition of feature checks in the configure script to replace in code checks.
+- Fixed bug in ga_crossover_bitstring_doublepoints().  It was only performing single point crossover. -- bug reported by Henk van Lingen.
+- Fixed bug in ga_bit_copy().  It was copying dest to src! -- bug reported by Henk van Lingen.
+- Tweaked royalroad examples to use a different type of elitism.  Also, tidied their output.
+- Added royalroad_bitstring example.
+- Added ga_seed_boolean_zero().
+- Chromosome handling functions now all take (const population *) arguments.
+- Added ga_seed_random_unit_gaussian().
+- All parameters are now copied in ga_population_clone() and ga_population_clone_empty().
+- Removed some minor memory leaks from the stochastic optimisation methods code.
+- Added population accessor functions; ga_population_get_crossover(), ga_population_get_mutation(), ga_population_get_migration(), ga_population_get_elitism(), ga_population_get_scheme().
+- Custom timer code deleted from sorting routines.
+- Changed the website referenced in source comments to http://gaul/sourceforge.net/
+- Fixed a bug resulting from accessing memory after freeing it.
+
+Changes since release 0.1843:
+- Version details may be probed at run-time.  Better namespace compliance for version constants.  diagnostics example modified accordingly.
+- Updated the README file.
+- Fixed bug in ga_slang_replace().
+- Better internal support for interfaces to arbitrary scripting engines.
+- Added new selection functions: ga_select_one_best(), ga_select_two_best(), ga_select_one_aggressive(), ga_select_two_aggressive().
+- Gave struggle_forked the same GA parameters as struggle.
+- Improved some error messages.
+- Extra assorted sanity checking.
+- Added support for deterministic crowding; ga_deterministiccrowding().
+- Fixed silly bug in ga_steepestdescent() sanity checks.
+- RPM package improvements.
+
+Changes since release 0.1842:
+- Lots of "behind-the-scenes" code tidying, some of which was based on splint reports ( http://www.splint.org/ ).
+- Changed name of test example to test_ga to avoid name clash with file from binutils package.
+- use 'dnl' not '#' for m4 comments.
+- use '#' not 'dnl' for RPM spec comments.
+- Split statistics functions to seperate source file.  Added ga_fitness_mean().
+- Public function prototypes added to the gaul.h header.
+- Fixed/standardised RPM spec file.
+- Removed standalone neural network simulator from archive and distribution.
+- Modified copyright notices.
+- HP-UX fixes.
+- *** API CHANGE *** Changed parameters to the ga_genesis_XXX() functions.  This enables userdata field of the population structure to be defined prior to use by the seeding operator.
+- Fixed bug in ga_select_one_sus() causing incorrect number of entities to be selected.
+- Fixed bug in configure.in _Bool tests.
+- Code linking to GAUL now only needs "-lgaul -lgaul_util -lm".
+- Extensive rewrite of portions of parallel code.
+- Changed strdup() prototype in compatibility routines.
+- Added ga_population_get_generation() function to access the generation number from within the callbacks used during evolution, e.g. the fitness evaluation function.
+- Added new elitism option, GA_ELITISM_RESCORE_PARENTS.  This re-evaluates the parents' fitness and maintains them in the population if they still have a sufficiently high fitness.
+- Added ga_population_get_generation() intrinsic for S-Lang scripting.
+- The struggle examples all use GA_ELITISM_PARENTS_DIE now.
+
+Changes since release 0.1841:
+- Hill climbing (random ascent and next ascent) algorithms completely rewritten.
+- Numerous fixes for compilation with MingW ( http://www.mingw.org/ ) for Windows.
+- Path to S-Lang headers is no longer hard-coded.
+- Added kludge to avoid problem with "OpenMOSIX weird bus error bug".
+- Added missing prototypes for built-in Tabu-search acceptance functions.
+- Added simplex search algorithm, and an example.
+- Added random search algorithm, and an example.
+- Added systematic search algorithm, and an example.
+- Added missing ga_crossover_double_singlepoints() and ga_crossover_double_doublepoints() functions.
+- Some minor fixes for clean compilation on Solaris 8 and FreeBSD.
+- Added steepest ascents code.
+
+Changes since release 0.1840:
+- Added a few missing intrinsic functions.
+- Avoid use of acconfig.h in configuration since that is now deprecated and discouraged.
+- Fixed configuration bug causing shared dynamic object librarys to not be installed under UNIX.
+- Fixed minor bug in ga_evolution_forked() causing incorrect number of forked processes to be reported.  -- thanks to Daniel Pick.
+- Fixed strsep() bug in compatibility.c
+- Fixed stricmp()/strnicmp() problem on Cygwin platform.
+- Updated configuration files for successful compilation on RedHat 8.0
+- Improved configuration with respect to some simple platform specific optimisations.
+- RPM spec file improved considerably.
+- Simulated annealling algorithm completely rewritten.
+- Tabu search algorithm completely rewritten.
+- Three new examples added to demonstrate Tabu-searching and Simulated Annealling.
+- Configure script now checks for a working stdbool.h header and a built-in _Bool type.
+- Added configuration option to alter the default numbers of threads and/or processes spawned in multiprocessor code.
+
+Changes since release 0.1839:
+- Added ga_mutate_char_allpoint().
+- Modified sorting routines such that identical results are produced on all supported platforms.
+- Added 'double-array' chromosome similarity routines; Tanimoto, Dice, Cosine similarity coefficients.
+- *** API CHANGE *** evolutionary functions now return the number of generations performed.
+- *** API CHANGE *** ga_population_parameters() is now used to define elitism mode and evolutionary scheme instead of the evolutionary functions' parameter list.
+- Evolutionary code cleaned and optimised for both speed and size through better code re-use.
+- ga_population_set_scheme(), ga_population_set_elitism(), ga_population_set_crossover(), ga_population_set_mutation(), ga_population_set_migration() added.
+- Example programs fixed with respect to the extensive API changes.
+- Some unnecessary fitness evaluations are no longer performed.
+- *** API CHANGE *** adaptation functions can no longer assume that passed entities have been evaluated (in fact, it is likely that they haven't).
+- *** API CHANGE *** adaptation type is named "scheme" instead of "class" to avoid confusing the computer scientists ;)
+- Changed the 'struggle' examples so that they use Stochastic Universal Sampling instead of Roulette Wheel Sampling.
+- Fixes for compilation on the MacOS X platform.
+- Fixes for compilation on the QNX V6 platform.
+- Reduced number of dynamic libraries created.
+- ga_evolution_forked() added, along with examples.
+- Modified configure.in to enhance performance of Intel C/C++ compiler optimisations.
+- Fixes for clean compilation with gcc 3.2 and the latest autotools.
+- Example programs will no longer be installed into binary directory by 'make install'.
+- Lots of extra error checking added around use of the internal population table.  This table is now deallocated when no populations exist.
+- Several small memory leaks/errors eliminated from example programs.
+- *** API CHANGE *** The chromsome static string functions have been replaced with versions which use dynamic allocation.  For example, ga_chromosome_integer_to_staticstring() has been replaced by ga_chromosome_integer_to_string().  The required parameters are different.
+- Numerous minor tweaks have been applied to the example programs.
+
+Changes since release 0.1838:
+- Added Stochastic Universal Sampling selection functions ga_select_one_sus() and ga_select_two_sus().
+- examples/struggle2 now uses stochastic universal sampling instead of roulette wheel sampling.
+- Fixed stupid mistake in RPM spec file.
+- Added ga_mutate_double_singlepoint_randomize() and ga_mutate_double_singlepoint_drift().
+- Chromosome allocation and seeding functions now return boolean values for error checking use.
+- Some fixes for compilation with Solaris/SunOS and the Sun Forte Developer C++ compiler.
+- Added bitstring chromosome similarity routines; Tanimoto, Dice, Hamming, Euclidean, Cosine similarity coefficients.
+- S-Lang interface code tidied.
+- Added accessor functions: ga_entity_get_fitness(), ga_entity_set_fitness(), ga_population_get_stablesize(), ga_population_get_size(), ga_population_get_maxsize(), ga_population_set_stablesize().
+- Added ga_population_clone_empty() function.
+- Added ga_mutate_integer_allpoint() mutation function.
+- Added working population and entity reading/writing functions and a new example program to demonstrate them.
+- random_init() no longer needs to be called provided that random_seed() is called before any of the other PRNG functions.
+
+Changes since release 0.1837:
+- Documentation is now maintained in a seperate CVS module, gaul-docs.
+- Added slang-devel requirement to spec file and renamed it from gaul.spec to gaul-devel.spec.
+- Removed fixed upper size limit on populations, and adjusted some prototypes accordingly.  This breaks backwards compatibility for ga_population_new() and the associated S-Lang intrinsic.  The nnevolve and struggle4 examples required modification.
+- Fixed memory corruption in ga_chromosome_double_to_staticstring() and ga_chromosome_int_to_staticstring().
+- Numerous enhancements to the neural network utility library which is used by examples/nnevolve.
+- Diagnostic functions display additional information.
+- ROADMAP file added to CVS archive.
+- Modifications for clean compilation under AIX (use gmake).
+- Applied some fixes to enable compilation on the Cygwin platform.
+- Error checking added in ga_get_entity_from_id().
+- Internal changes to entity and population structures.
+- Relaxed licensing conditions for util/SAA_header.h.
+- Added dstr_fromstr() function to util/dstr_util.c.
+- Roulette wheel now starts spinning from random position.
+- Fixed bug in, and optimised, ga_replace_by_fitness().
+
+Changes since release 0.1836:
+- Added ga_get_all_populations() which returns array of all currently allocated populations.
+- Added ga_get_all_population_ids() which returns array of all currently allocated populations' indices.
+- Tidied some comments.
+- Corrected prototype for ga_genesis_boolean().
+- More documentation added.
+- ga_bit_copy() now safely handles overlapping sequences of bits.
+- Can now link both GAUL and glib/gtk into the same program.
+- Initial support for new multi-processor algorithms added.
+- By default dumping of statistics is now disabled at compile time.
+- Updated utility routines to sync with other projects.
+- GNU Libtool is now used for library handling.
+- Minor alterations required for clean compilation using Intel C/C++.
+- A neural network evolution example added.
+- A multi-processor (using MPI) island-model example added.
+- Added ga_entity_evaluate() convenience function.
+- Removed some surplus files from the CVS archive and distribution.
+- Added textual summary of configure process at end of "./configure" output.
+- Removed unneeded header files from installation.
+- Fixed gaul.spec file so that RPM packages actually work.
+- Many millions of minor bugfixes.
+- Many millions of major bugfixes.
+- Many millions of new bugs.
+
+Changes since release 0.1835:
+- Lots of little bugfixes.
+- More accessor functions added.
+- SunOS compilation.
+- Added version of the struggle example to show usage of multiple populations: examples/struggle5.c
+- Many documentation fixes.
+- Example files now in example directory.  Test code will be located in the test directory instead.
+- Some miscellaneous code tidying.
+
+Changes since release 0.1834:
+- Tidied pingpong.c
+- Added missing ga_evolution_steady_state() prototype.
+- Added version of the royalroad example which uses a steady state GA instead: tests/royalroad_ss.c
+- Added version of the struggle example which uses a steady state GA instead: tests/struggle_ss.c
+- Added version of the struggle example for comparison of the alternative evolutionary schemes: tests/struggle2.c
+- Added version of the struggle example to show custom termination criteria and some simple statistics: tests/struggle3.c
+- Added version of the struggle example to show usage of custom operators: tests/struggle4.c
+- Renamed the SLang intrinsic ga_entity_clone() to ga_entity_clone_wrapper(), and added new, C-callable ga_entity_clone().
+- Renamed all ga_copy_entity[_XXX]() functions to ga_entity_copy[_XXX]() for consistency.
+- For convenience, added ga_population_clone().
+- GA_UTIL_MIN_FITNESS renamed to GA_MIN_FITNESS, and is correctly used everywhere now.
+- Fixed chromosome replication bug (I was copying destination to source, doh!).
+- Some tutorial-style documentation about the "struggle" examples added.
+- Tidied some miscellaneous comments.
+- Moved some type definitions into the public header, gaul.h
+- Some additional checks performed by the configure script.
+- All required files will now be distributed.  Why people didn't tell me the recent distribution didn't compile, I don't know...
+- Website fixes.
+- Configure script stores output from "uname -a" which will aid in fixing people's compilation proplems.
+- A basic diagnostic program added as tests/diagnostics.c
+- Fixed multi-population extinction bug.
+- Reorganised stats functions.
+
+Changes since release 0.1833:
+- Changes for docs/html/books.html to validate.
+- Used cvs2cl.pl to create change log.
+- Modifications for compilation using MIPSPro C compiler under IRIX.
+- Added bitstring chromosomes (incl. the necessary handling routines).
+- Some more documentation.
+- examples/chromostubs.c added.
+- .cvsignore updated, then renamed to cvsignore.
+- In many of the examples, ga_get_entity_from_rank(pop,0) is now used.
+
+Changes since release 0.1832:
+- Added 'GPL'd header' to source files which were missing it.
+- Changes for compilation under FreeBSD. (There are still lots of warnings about the use of the deprecated header file "malloc.h")
+- Changes for compilation under Solaris.
+- Fixed some spelling mistakes/typos in the headers and on the web-pages.
+- Slightly updated the INSTALL file.
+- Rationalised use of population_extinction() in tests/struggle.c
+- Sorted out stuff required by 'make dist' and friends.
+- The documentation will now be distributed seperately to the source code, at least until the stable release.
+- Supported platform info added to web-pages.
+
+Changes since release 0.1831:
+- Fixed minor bug in ./configure.in, message said "--with-slang=no", but should have said "--enable-slang=no".
+- Added files tests/btree.c and tests/btree.h - code doesn't compile without them!
+- Some more, really suspect, functions added to src/ga_utility.c.  ga_entity_dump() and ga_population_dump() also added.
+- New "printable characters"-based mutations etc.
+- A new example program added, tests/struggle.c
+- src/libga.a renamed to src/libgaul.a
+- Some additional prototypes added into the header files.
+- Examples now use ga_chromosome_XXX_to_staticstring() where appropriate.
+- Replaced s_calloc() calls in src/ga_chromo.c with s_malloc() calls.
+- Fixed bug in ga_select_stats().
+- Overhauled tests/Makefile.am
+- Fixed serious bug (segfault) in ga_select_roulette_{one|two}().
+- Added ga_crossover_char_{singlepoints|doublepoints}().
+
+Release 0.1831 was uploaded to sourceforge.net on 16th June 2001.
+

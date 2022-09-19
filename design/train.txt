@@ -1,0 +1,2 @@
+Query: Am I using x11? Am I using Wayland?
+echo $XDG_SESSION_TYPE

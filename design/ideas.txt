@@ -1,0 +1,6 @@
+Images move out of the way to snap new images into open structures grid (1px = 1cm?)
+
+Image viewer for
+https://www.erowid.org/culture/art/art_swarm.php
+Pixeljoint
+Wikipedia image query

@@ -1,4 +1,4 @@
-#version 400 core
+#version 300 es
 in vec2 coords;
 out vec4 color;
 

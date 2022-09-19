@@ -19,6 +19,9 @@
 
 #include "curl/curl.h"
 
+#define PY_SSIZE_T_CLEAN
+#include <Python.h>
+
 // flecs modules
 // #include "input.h"
 
@@ -178,6 +181,7 @@ ecs_world_t* world;
 CommandBuffer buffer;
 ecs_entity_t renderer;
 ecs_entity_t input;
+ecs_entity_t AI_painter;
 
 void AnimateGif(ecs_iter_t* it)
 {
@@ -902,6 +906,42 @@ void RenderDragSelector(ecs_iter_t* it)
     glDisable(GL_CULL_FACE);
 }
 
+void RenderPaintFrame(ecs_iter_t* it)
+{
+    NanoVG* nano = ecs_term(it, NanoVG, 1);
+    Camera* camera = ecs_term(it, Camera, 2);
+    Transform2D* transform = ecs_term(it, Transform2D, 3);
+    PaintFrame* frame = ecs_term(it, PaintFrame, 4);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glEnable(GL_CULL_FACE);
+    glDisable(GL_DEPTH_TEST);
+
+    // TODO: Function to world to screen multiple verts
+    vec2 upperLeft = {transform->pos[0], transform->pos[1]};
+    world_to_screen(camera->view, upperLeft, upperLeft);
+    vec2 upperRight = {transform->pos[0] + frame->w, transform->pos[1]};
+    world_to_screen(camera->view, upperRight, upperRight);
+    vec2 lowerLeft = {transform->pos[0], transform->pos[1] + frame->h};
+    world_to_screen(camera->view, lowerLeft, lowerLeft);
+    vec2 lowerRight = {transform->pos[0] + frame->w, transform->pos[1] + frame->h};
+    world_to_screen(camera->view, lowerRight, lowerRight);
+
+    float w = upperRight[0] - upperLeft[0];
+    float h = upperRight[1] - lowerRight[1];
+
+    nvgBeginPath(nano->vg);
+    nvgRect(nano->vg, upperLeft[0], upperRight[1], w, 2);
+    nvgRect(nano->vg, upperRight[0], lowerRight[1], 2, h);
+    nvgRect(nano->vg, lowerLeft[0], lowerRight[1], w, 2);
+    nvgRect(nano->vg, upperLeft[0], lowerLeft[1], 2, h);
+    nvgFillColor(nano->vg, nvgRGBA(0, 0, 255, 255));
+    nvgFill(nano->vg);
+    nvgClosePath(nano->vg);
+    // glEnable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+}
+
 void MoveDragSelector(ecs_iter_t* it)
 {
     DragSelector* selector = ecs_term(it, DragSelector, 1);
@@ -1156,14 +1196,14 @@ void TransformCascadeHierarchy(ecs_iter_t* it)
 
 void add_command_on_grab(ecs_iter_t* it, CommandBuffer* buffer)
 {
-        // ecs_filter_t filter;
-        // ecs_filter_init(world, &filter, &(ecs_filter_desc_t) {
-        //     .terms = {{ ecs_id(Selected) } }
-        // });
-        // ecs_iter_t change = ecs_filter_iter(world, &filter);
-        // ecs_snapshot_t *s = ecs_snapshot_take_w_iter(&change, ecs_filter_next);
-        // // ecs_snapshot_t *s = ecs_snapshot_take(world);
-        // push_command(&buffer, s);
+    // ecs_filter_t filter;
+    // ecs_filter_init(world, &filter, &(ecs_filter_desc_t) {
+    //     .terms = {{ ecs_id(Selected) } }
+    // });
+    // ecs_iter_t change = ecs_filter_iter(world, &filter);
+    // ecs_snapshot_t *s = ecs_snapshot_take_w_iter(&change, ecs_filter_next);
+    // // ecs_snapshot_t *s = ecs_snapshot_take(world);
+    // push_command(&buffer, s);
     // ecs_add(it->world, input, TakeSnapshot);
 }
 
@@ -1204,8 +1244,8 @@ void OpenSymbolPath(ecs_iter_t* it)
                 dist[1] > 0.0 && dist[1] <= texture[i].height / texture[i].scale[1])
                 {
                     indication = qIt.entities[i];
-                    char command[2048];
-                    sprintf(command, "xdg-open \"%s\"", file[i].path);
+                    char command[PATH_MAX + 16];
+                    sprintf(command, "xdg-open \"%s\"\0", file[i].path);
                     system(command);
                     break;
                 }
@@ -1739,6 +1779,23 @@ void cursor_position_callback(GLFWwindow* window, double xpos, double ypos)
 
 int main(int argc, char const *argv[])
 {
+    // evolve_layout(NULL);
+
+    // Test python
+    wchar_t *program = Py_DecodeLocale(argv[0], NULL);
+    if (program == NULL) {
+        fprintf(stderr, "Fatal error: cannot decode argv[0]\n");
+        exit(1);
+    }
+    Py_SetProgramName(program);  /* optional but recommended */
+    Py_Initialize();
+    PyRun_SimpleString("from time import time,ctime\n"
+                       "print('Today is', ctime(time()))\n");
+    if (Py_FinalizeEx() < 0) {
+        exit(120);
+    }
+    PyMem_RawFree(program);
+
     buffer.index = 0;
     buffer.count = 0;
     buffer.capacity = 100;
@@ -1767,6 +1824,7 @@ int main(int argc, char const *argv[])
     ECS_COMPONENT_DEFINE(world, ActionOnMouseInput);
     ECS_COMPONENT_DEFINE(world, Anchor);
     ECS_COMPONENT_DEFINE(world, SavedData);
+    ECS_COMPONENT_DEFINE(world, PaintFrame);
     ECS_TAG_DEFINE(world, Grabbed);
     ECS_TAG_DEFINE(world, DragHover);
     ECS_TAG_DEFINE(world, TakeSnapshot);
@@ -1774,6 +1832,10 @@ int main(int argc, char const *argv[])
 
     // ECS_IMPORT(world, InputModule);
     input = ecs_set_name(world, 0, "input");
+
+    AI_painter = ecs_set_name(world, 0, "AI_painter");
+    ecs_set(world, AI_painter, Transform2D, {0.0f, 0.0f});
+    ecs_set(world, AI_painter, PaintFrame, {512.0f, 512.0f});
 
     ECS_OBSERVER(world, SetupBatchRenderer, EcsOnSet, BatchSpriteRenderer);
     ECS_OBSERVER(world, SetupCamera, EcsOnSet, Camera);
@@ -1798,7 +1860,7 @@ int main(int argc, char const *argv[])
     window = glfwCreateWindow(640, 480, "Gui Gal 👩‍💻", NULL, NULL);
     glfwMakeContextCurrent(window);
     gladLoadGL();
-    glfwSwapInterval(0);
+    glfwSwapInterval(1);
     glfwSetKeyCallback(window, key_callback);
     glfwSetDropCallback(window, drop_callback);
     glfwSetDragCallback(window, drag_callback);
@@ -1847,6 +1909,7 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, StartNanoVGFrame, EcsPreFrame, NanoVG(renderer));
     ECS_SYSTEM(world, EndNanoVGFrame, EcsPostUpdate, NanoVG(renderer));
     ECS_SYSTEM(world, RenderDragHover, EcsPostUpdate, NanoVG(renderer), DragHover(input));
+    ECS_SYSTEM(world, RenderPaintFrame, EcsPostUpdate, NanoVG(renderer), Camera(renderer), Transform2D(AI_painter), PaintFrame(AI_painter));
     ECS_SYSTEM(world, MoveDragSelector, EcsOnUpdate, DragSelector(input), EventMouseMotion(input));
     ECS_SYSTEM(world, UndoCommand, EcsOnUpdate, EventKey(input));
     ECS_SYSTEM(world, SaveProjectShortcut, EcsPostUpdate, EventKey(input), [inout] *());
@@ -1856,7 +1919,7 @@ int main(int argc, char const *argv[])
 
     ECS_SYSTEM(world, RenderActionIndicators, EcsPostUpdate, NanoVG(renderer), Camera(renderer), Transform2D, CircleActionIndicator);
     ECS_SYSTEM(world, RenderImageSelectionIndicators, EcsPostUpdate, Camera(renderer), BatchSpriteRenderer(renderer), Transform2D, Texture2D, Selected);
-    // ECS_SYSTEM(world, RenderSelectionIndicators, EcsPostUpdate, renderer:NanoVG, renderer:Camera, Transform2D, Texture2D, Selected);
+    // ECS_SYSTEM(world, RenderSelectionIndicators, EcsPostUpdate, NanoVG(renderer), Camera(renderer), Transform2D, Texture2D, Selected);
 
     ECS_SYSTEM(world, RenderDragSelector, EcsPostUpdate, NanoVG(renderer), DragSelector(input));
     ECS_SYSTEM(world, LoadClipboardFiles, EcsOnUpdate, EventMouseButton(input));
@@ -1867,8 +1930,9 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, MouseEndAction, EcsPreFrame, EventMouseButton, ActionOnMouseInput);
     ECS_SYSTEM(world, MouseAffectAction, EcsOnUpdate, EventMouseMotion(input), ActionOnMouseInput(input), Camera(renderer), Transform2D, Texture2D);
 
+
     glfwShowWindow(window);
-    
+
     while (!glfwWindowShouldClose(window))
     {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
