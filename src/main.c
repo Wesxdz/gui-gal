@@ -7,6 +7,8 @@
 #include <gif_lib.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <string.h>
+#include <stdlib.h>
 
 #define CUTE_C2_IMPLEMENTATION
 #include "cute_c2.h"
@@ -16,6 +18,8 @@
 #define NANOVG_GL3_IMPLEMENTATION
 #include "nanovg.h"
 #include "nanovg_gl.h"
+#include "nvgutil.h"
+#include <pthread.h>`
 
 #include "curl/curl.h"
 
@@ -24,6 +28,10 @@
 
 // flecs modules
 // #include "input.h"
+
+// Multithreading for image gen
+pthread_mutex_t mutex1 = PTHREAD_MUTEX_INITIALIZER;
+bool thread_started = false;
 
 void print_log(GLuint object)
 {
@@ -141,6 +149,13 @@ void SetupCamera(ecs_iter_t* it)
     vec3 center = {0.0, 0.0, -1.0};
     vec3 up = {0.0, 1.0, 0.0};
     glm_lookat(eye, center, up, camera->view);
+}
+
+void SetupNanoVG(ecs_iter_t* it)
+{
+    NanoVG* nano = ecs_term(it, NanoVG, 1);
+    nvgCreateFont(nano->vg, "sans", "../res/Roboto-Regular.ttf");
+    nvgCreateFont(nano->vg, "sans_bold", "../res/Roboto-Bold.ttf");
 }
 
 void SetupBatchRenderer(ecs_iter_t* it)
@@ -276,6 +291,13 @@ void center_window(GLFWwindow *window, GLFWmonitor *monitor)
 void error_callback(int error, const char* description)
 {
     fprintf(stderr, "Error: %s\n", description);
+}
+
+void char_callback(GLFWwindow* window, unsigned int codepoint)
+{
+    printf("Character callback\n");
+    ecs_set(world, input, EventCharEntry, {window, codepoint});
+    ecs_set_pair(world, input, ConsumeEvent, ecs_id(EventCharEntry), {});
 }
 
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
@@ -684,6 +706,14 @@ void LoadDroppedFiles(ecs_iter_t* it)
     free(drop->paths); // TODO: Move to another system and free unused paths
 }
 
+void LoadPaintedImage(ecs_iter_t* it)
+{
+    EventPaintLoad* paintLoad = ecs_term(it, EventPaintLoad, 1);
+    load_visual_symbol(it->world, paintLoad->filepath);
+    free(paintLoad->filepath);
+    ecs_delete(it->world, it->entities[0]);
+}
+
 void drop_callback(GLFWwindow* window, int count, const char** paths)
 {
     ecs_remove(world, input, DragHover);
@@ -906,16 +936,29 @@ void RenderDragSelector(ecs_iter_t* it)
     glDisable(GL_CULL_FACE);
 }
 
+void RenderImageName(ecs_iter_t* it)
+{
+    NanoVG* nano = ecs_term(it, NanoVG, 1);
+    // nvgFontSize(nano->vg, 32.0f);
+    // nvgFontFace(nano->vg, "sans");
+    // nvgBeginPath(nano->vg);
+    // nvgFillColor(nano->vg, nvgRGBA(255,255,255,255));
+    // nvgTextAlign(nano->vg, NVG_ALIGN_LEFT|NVG_ALIGN_TOP);
+    // const char* test = "Hello!";
+    // nvgText(nano->vg, 30, 30, test, NULL);
+    // nvgClosePath(nano->vg);
+    // // drawSlider(nano->vg, 0, 100, 100, 400, 64);
+    // drawEditBoxNum(nano->vg, "20", "m", 100, 100, 128, 54);
+
+
+}
+
 void RenderPaintFrame(ecs_iter_t* it)
 {
     NanoVG* nano = ecs_term(it, NanoVG, 1);
     Camera* camera = ecs_term(it, Camera, 2);
     Transform2D* transform = ecs_term(it, Transform2D, 3);
     PaintFrame* frame = ecs_term(it, PaintFrame, 4);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glEnable(GL_CULL_FACE);
-    glDisable(GL_DEPTH_TEST);
 
     // TODO: Function to world to screen multiple verts
     vec2 upperLeft = {transform->pos[0], transform->pos[1]};
@@ -931,15 +974,19 @@ void RenderPaintFrame(ecs_iter_t* it)
     float h = upperRight[1] - lowerRight[1];
 
     nvgBeginPath(nano->vg);
-    nvgRect(nano->vg, upperLeft[0], upperRight[1], w, 2);
-    nvgRect(nano->vg, upperRight[0], lowerRight[1], 2, h);
-    nvgRect(nano->vg, lowerLeft[0], lowerRight[1], w, 2);
-    nvgRect(nano->vg, upperLeft[0], lowerLeft[1], 2, h);
-    nvgFillColor(nano->vg, nvgRGBA(0, 0, 255, 255));
-    nvgFill(nano->vg);
+    nvgMoveTo(nano->vg, 0.0f, 0.0f);
+    nvgRect(nano->vg, upperLeft[0], upperLeft[1]-h, w, h);
     nvgClosePath(nano->vg);
-    // glEnable(GL_DEPTH_TEST);
-    glDisable(GL_CULL_FACE);
+    nvgStrokeColor(nano->vg, nvgRGBA(0, 0, 255, 255));
+    nvgStrokeWidth(nano->vg, 3.0f);
+    nvgStroke(nano->vg);
+
+    nvgFontSize(nano->vg, 20.0f);
+    nvgFontFace(nano->vg, "sans");
+    nvgBeginPath(nano->vg);
+    nvgFillColor(nano->vg, nvgRGBA(255,255,255,255));
+    nvgTextAlign(nano->vg, NVG_ALIGN_LEFT|NVG_ALIGN_TOP);
+    nvgText(nano->vg, lowerLeft[0], lowerLeft[1] + 12, frame->prompt, NULL);
 }
 
 void MoveDragSelector(ecs_iter_t* it)
@@ -1033,6 +1080,104 @@ void MouseAffectAction(ecs_iter_t* it)
                 transform[i].pos[1] = opposite[1] - texture[i].height/greater;
             }
         }
+    }
+}
+
+void TypePaintPrompt(ecs_iter_t* it)
+{
+    PaintFrame* paint = ecs_term(it, PaintFrame, 1);
+    EventCharEntry* charEntry = ecs_term(it, EventCharEntry, 2);
+    
+    // printf("Type paint prompt {%c}\n", charEntry->codepoint);
+    printf("%c\n",charEntry->codepoint);
+    strcat(paint->prompt, &charEntry->codepoint);
+}
+
+void generate_image(void* ptr)
+{
+    pthread_mutex_lock(&mutex1);
+    // printf("Thread locked by generator\n");
+    thread_started = true;
+    system((char*)ptr);
+    free(ptr);
+    pthread_mutex_unlock(&mutex1);
+    // printf("Thread unlocked by generator!\n");
+}
+
+void image_gen_completed(ecs_iter_t* it, void* data)
+{
+    // TODO: Load image and place it at PaintFrame :)
+    PromptCallbackData* pcd = (PromptCallbackData*)data;
+    printf("Image with name example_%d finished generating!\n", pcd->seed);
+    int len = snprintf(NULL, 0, "example_%d.png", pcd->seed);
+    char* filepath = malloc(len);
+    snprintf(filepath, len+1, "example_%d.png", pcd->seed);
+    printf("Filepath is %s\n", filepath);
+    ecs_entity_t load_image_task = ecs_new_id(it->world);
+    ecs_set(it->world, load_image_task, EventPaintLoad, {filepath});
+    // This isn't working for some reason...
+    // ecs_defer_begin(it->world);
+    // load_visual_symbol(it->world, filepath);
+    // ecs_defer_end(it->world);
+}
+
+void CheckThreadComplete(ecs_iter_t* it)
+{
+    WaitThreadComplete* wait = ecs_term(it, WaitThreadComplete, 1);
+    int locked = pthread_mutex_trylock(wait->mutex);
+    // printf("Is thread locked? %i\n", locked);
+    if (!locked)
+    {
+        // printf("Has thread started? %i\n", wait->has_thread_started);
+        if (wait->has_thread_started)
+        {
+            // printf("Thread complete!\n");
+            wait->callback(it, wait->data); // Thread is finished!
+            ecs_delete(it->world, it->entities[0]);
+        }
+        pthread_mutex_unlock(wait->mutex);
+        // printf("Thread unlocked by checker!\n");
+    }
+}
+
+void BackspacePaintPrompt(ecs_iter_t* it)
+{
+    PaintFrame* paint = ecs_term(it, PaintFrame, 1);
+    EventKey* key = ecs_term(it, EventKey, 2);
+    size_t prompt_len = strlen(paint->prompt);
+    if  (key->key == GLFW_KEY_BACKSPACE && prompt_len > 0 && prompt_len < 255 && (key->action == GLFW_PRESS || key->action == GLFW_REPEAT))
+    {
+        // paint->prompt[prompt_len] = NULL;
+        paint->prompt[prompt_len-1] = NULL;
+    }
+    printf("Key is %i. Action is %i\n",key->scancode, key->action);
+    if (key->key == GLFW_KEY_ENTER && key->action == GLFW_PRESS)
+    {
+        pthread_t thread;
+        const char* command = "python ../python/gen_sd.py --prompt ";
+        char* invoke_sd = malloc(strlen(command) + 256);
+        const char* quotationLiteral = "\"";
+        const char* space = " ";
+        strcpy(invoke_sd, command);
+        printf("%s\n", invoke_sd);
+        strcat(invoke_sd, quotationLiteral);
+        strcat(invoke_sd, paint->prompt);
+        strcat(invoke_sd, quotationLiteral);
+        strcat(invoke_sd, space);
+        strcat(invoke_sd, "--seed ");
+        int random_seed = random();
+        int len = snprintf(NULL, 0, "%d", random_seed);
+        char* seed_str = malloc(len+1);
+        snprintf(seed_str, len+1, "%d", random_seed);
+        strcat(invoke_sd, seed_str);
+        free(seed_str);
+        printf("%s\n", invoke_sd);
+        int thread_id = pthread_create(&thread, NULL, generate_image, (void*)invoke_sd);
+        ecs_entity_t image_gen_task = ecs_new_id(it->world);
+        PromptCallbackData* data = malloc(sizeof(PromptCallbackData));
+        data->prompt = &paint->prompt;
+        data->seed = random_seed;
+        ecs_set(it->world, image_gen_task, WaitThreadComplete, {&mutex1, thread_id, &thread_started, &image_gen_completed, (void*)data});
     }
 }
 
@@ -1718,7 +1863,7 @@ void RenderActionIndicators(ecs_iter_t* it)
         vec2 screenPos;
         world_to_screen(camera->view, transform[i].pos, screenPos);
 
-        nvgCircle(nano->vg, screenPos[0] + indicator[i].screenOffset[0], screenPos[1] + indicator[i].screenOffset[1], radius + 1);
+        // nvgCircle(nano->vg, screenPos[0] + indicator[i].screenOffset[0], screenPos[1] + indicator[i].screenOffset[1], radius + 1);
         NVGcolor inverted = nvgRGBAf(1.0 - indicator[i].color.r, 1.0 - indicator[i].color.g, 1.0 - indicator[i].color.b, 1.0);
         float avg = (inverted.r + inverted.g + inverted.b)/3;
         NVGcolor greyscale = nvgRGBAf(avg, avg, avg, 1.0);
@@ -1738,7 +1883,7 @@ void RenderActionIndicators(ecs_iter_t* it)
         nvgClosePath(nano->vg);
 
         nvgBeginPath(nano->vg);
-        nvgCircle(nano->vg, screenPos[0] + indicator[i].screenOffset[0], screenPos[1] + indicator[i].screenOffset[1], radius);
+        // nvgCircle(nano->vg, screenPos[0] + indicator[i].screenOffset[0], screenPos[1] + indicator[i].screenOffset[1], radius);
         // nvgPathWinding(nano->vg, NVG_HOLE);
         nvgCircle(nano->vg, screenPos[0] + indicator[i].screenOffset[0], screenPos[1] + indicator[i].screenOffset[1], radius);
         if (invertOutline)
@@ -1749,7 +1894,7 @@ void RenderActionIndicators(ecs_iter_t* it)
         {
             nvgFillColor(nano->vg, indicator[i].color);
         }
-        // nvgFillColor(nano->vg, nvgRGBA(157, 3, 252,255));
+        nvgFillColor(nano->vg, nvgRGBA(157, 3, 252,255));
         nvgFill(nano->vg);
 
         nvgClosePath(nano->vg);
@@ -1779,22 +1924,31 @@ void cursor_position_callback(GLFWwindow* window, double xpos, double ypos)
 
 int main(int argc, char const *argv[])
 {
+    srand(time(0));
     // evolve_layout(NULL);
 
+    // system("python ../python/gen_sd.py");
+
     // Test python
-    wchar_t *program = Py_DecodeLocale(argv[0], NULL);
-    if (program == NULL) {
-        fprintf(stderr, "Fatal error: cannot decode argv[0]\n");
-        exit(1);
-    }
-    Py_SetProgramName(program);  /* optional but recommended */
-    Py_Initialize();
-    PyRun_SimpleString("from time import time,ctime\n"
-                       "print('Today is', ctime(time()))\n");
-    if (Py_FinalizeEx() < 0) {
-        exit(120);
-    }
-    PyMem_RawFree(program);
+    // wchar_t *program = Py_DecodeLocale(argv[0], NULL);
+    // if (program == NULL) {
+    //     fprintf(stderr, "Fatal error: cannot decode argv[0]\n");
+    //     exit(1);
+    // }
+    // Py_SetProgramName(program);  /* optional but recommended */
+    // wchar_t *home = Py_DecodeLocale("/home/aeri/miniconda3/envs/ldm", NULL);
+    // Py_SetPythonHome(home);
+    // // wchar_t *path = Py_DecodeLocale("/home/aeri/miniconda3/envs/ldm/lib/python3.8/site-packages/", NULL);
+    // // Py_SetPath(path);
+    // Py_Initialize();
+    // // PyRun_SimpleString("from time import time,ctime\n"
+    // //                    "print('Today is', ctime(time()))\n");
+    // FILE *script = fopen("../python/gen_sd.py", "r");
+    // PyRun_SimpleFile(script, "sd_gen.py");
+    // if (Py_FinalizeEx() < 0) {
+    //     exit(120);
+    // }
+    // PyMem_RawFree(program);
 
     buffer.index = 0;
     buffer.count = 0;
@@ -1813,6 +1967,7 @@ int main(int argc, char const *argv[])
     ECS_COMPONENT_DEFINE(world, EventMouseButton);
     ECS_COMPONENT_DEFINE(world, EventMouseMotion);
     ECS_COMPONENT_DEFINE(world, EventScroll);
+    ECS_COMPONENT_DEFINE(world, EventCharEntry);
     ECS_COMPONENT_DEFINE(world, EventDropFiles);
     ECS_COMPONENT_DEFINE(world, DragSelector);
     ECS_COMPONENT_DEFINE(world, NineSlice);
@@ -1825,6 +1980,8 @@ int main(int argc, char const *argv[])
     ECS_COMPONENT_DEFINE(world, Anchor);
     ECS_COMPONENT_DEFINE(world, SavedData);
     ECS_COMPONENT_DEFINE(world, PaintFrame);
+    ECS_COMPONENT_DEFINE(world, WaitThreadComplete);
+    ECS_COMPONENT_DEFINE(world, EventPaintLoad);
     ECS_TAG_DEFINE(world, Grabbed);
     ECS_TAG_DEFINE(world, DragHover);
     ECS_TAG_DEFINE(world, TakeSnapshot);
@@ -1835,14 +1992,16 @@ int main(int argc, char const *argv[])
 
     AI_painter = ecs_set_name(world, 0, "AI_painter");
     ecs_set(world, AI_painter, Transform2D, {0.0f, 0.0f});
-    ecs_set(world, AI_painter, PaintFrame, {512.0f, 512.0f});
+    ecs_set(world, AI_painter, PaintFrame, {512.0f, 512.0f, ""});
 
+    ECS_OBSERVER(world, LoadPaintedImage, EcsOnSet, EventPaintLoad);
     ECS_OBSERVER(world, SetupBatchRenderer, EcsOnSet, BatchSpriteRenderer);
     ECS_OBSERVER(world, SetupCamera, EcsOnSet, Camera);
     ECS_OBSERVER(world, SetInitialMultitexture, EcsOnSet, Texture2D, MultiTexture2D);
     ECS_OBSERVER(world, deallocate_texture, EcsOnRemove, Texture2D);
     ECS_OBSERVER(world, LoadDroppedFiles, EcsOnSet, EventDropFiles);
     ECS_OBSERVER(world, ApparateVisualSymbols, EcsOnSet, BrowseDirectory, SavedData, [inout] *());
+    ECS_OBSERVER(world, SetupNanoVG, EcsOnSet, NanoVG);
 
     IMG_Init(IMG_INIT_JPG | IMG_INIT_PNG | IMG_INIT_WEBP);
     glfwInit();
@@ -1862,6 +2021,7 @@ int main(int argc, char const *argv[])
     gladLoadGL();
     glfwSwapInterval(1);
     glfwSetKeyCallback(window, key_callback);
+    glfwSetCharCallback(window, char_callback);
     glfwSetDropCallback(window, drop_callback);
     glfwSetDragCallback(window, drag_callback);
     glfwSetCursorPosCallback(window, cursor_position_callback);
@@ -1893,6 +2053,7 @@ int main(int argc, char const *argv[])
         ecs_set(world, nav_command, SavedData, {argv[1]});
     }
 
+    ECS_SYSTEM(world, CheckThreadComplete, EcsPreFrame, WaitThreadComplete, [inout] *());
     ECS_SYSTEM(world, ResetCursor, EcsPreFrame, EventMouseMotion);
     ECS_SYSTEM(world, AnimateGif, EcsPreUpdate, GifAnimator, Texture2D, MultiTexture2D);
     ECS_SYSTEM(world, RenderSprites, EcsOnUpdate, Camera(renderer), BatchSpriteRenderer(renderer), Transform2D, Texture2D);
@@ -1914,12 +2075,15 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, UndoCommand, EcsOnUpdate, EventKey(input));
     ECS_SYSTEM(world, SaveProjectShortcut, EcsPostUpdate, EventKey(input), [inout] *());
     ECS_SYSTEM(world, InterpolateCamera, EcsPostUpdate, Camera);
+    ECS_SYSTEM(world, RenderImageName, EcsPostUpdate, NanoVG(renderer));
+    ECS_SYSTEM(world, TypePaintPrompt, EcsPostUpdate, PaintFrame(AI_painter), EventCharEntry(input), [inout] *());
+    ECS_SYSTEM(world, BackspacePaintPrompt, EcsPostUpdate, PaintFrame(AI_painter), EventKey(input), [inout] *());
 
     ECS_SYSTEM(world, AnchorPropagate, EcsPreUpdate, ?Transform2D(parent|cascade), Texture2D(parent), Transform2D, Anchor);
 
     ECS_SYSTEM(world, RenderActionIndicators, EcsPostUpdate, NanoVG(renderer), Camera(renderer), Transform2D, CircleActionIndicator);
-    ECS_SYSTEM(world, RenderImageSelectionIndicators, EcsPostUpdate, Camera(renderer), BatchSpriteRenderer(renderer), Transform2D, Texture2D, Selected);
-    // ECS_SYSTEM(world, RenderSelectionIndicators, EcsPostUpdate, NanoVG(renderer), Camera(renderer), Transform2D, Texture2D, Selected);
+    // ECS_SYSTEM(world, RenderImageSelectionIndicators, EcsPostUpdate, Camera(renderer), BatchSpriteRenderer(renderer), Transform2D, Texture2D, Selected);
+    ECS_SYSTEM(world, RenderSelectionIndicators, EcsPostUpdate, NanoVG(renderer), Camera(renderer), Transform2D, Texture2D, Selected);
 
     ECS_SYSTEM(world, RenderDragSelector, EcsPostUpdate, NanoVG(renderer), DragSelector(input));
     ECS_SYSTEM(world, LoadClipboardFiles, EcsOnUpdate, EventMouseButton(input));
@@ -1963,5 +2127,6 @@ int main(int argc, char const *argv[])
     free(buffer.snapshots);
     ecs_fini(world);
     // nvgDeleteGL3(vg);
+    exit(0);
     return 0;
 }

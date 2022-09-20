@@ -98,8 +98,29 @@ ECS_COMPONENT_DECLARE(DragSelector);
 
 typedef struct {
     float w, h;
+    char prompt[256];
 } PaintFrame;
 ECS_COMPONENT_DECLARE(PaintFrame);
+
+typedef struct {
+    char* prompt;
+    int seed;
+} PromptCallbackData;
+
+typedef struct {
+    char* filepath;
+} EventPaintLoad;
+ECS_COMPONENT_DECLARE(EventPaintLoad);
+
+typedef void (ThreadCallbackFunction)(ecs_iter_t*, void*);
+typedef struct {
+    pthread_mutex_t* mutex;
+    pthread_t thread_id;
+    bool* has_thread_started;
+    ThreadCallbackFunction* callback;
+    void* data;
+} WaitThreadComplete;
+ECS_COMPONENT_DECLARE(WaitThreadComplete);
 
 typedef struct
 {
@@ -159,6 +180,12 @@ typedef struct {
   int key, scancode, action, mods;
 } EventKey;
 ECS_COMPONENT_DECLARE(EventKey);
+
+typedef struct {
+    GLFWwindow* window;
+    unsigned int codepoint;
+} EventCharEntry;
+ECS_COMPONENT_DECLARE(EventCharEntry);
 
 typedef struct {
     NVGcontext* vg;

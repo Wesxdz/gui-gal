@@ -4,6 +4,7 @@ set(CMAKE_BUILD_TYPE Debug)
 
 set(EDITOR_NAME gui-gal)
 set(SOURCE_PATH "src")
+set(PYTHONHOME "/home/aeri/miniconda3/envs/ldm/bin/python3.8")
 
 project(${EDITOR_NAME})
 
@@ -24,7 +25,8 @@ include_directories("deps/gaul/util")
 
 # Embed Python for Stable Diffusion
 # https://docs.python.org/3/extending/embedding.html
-include_directories("/home/aeri/miniconda3/include/python3.8")
+include_directories("/home/aeri/miniconda3/envs/ldm/include/python3.8/")
+# find_library(python3.8 PATHS "/home/aeri/miniconda3/envs/ldm/bin/python3.8" NO_DEFAULT_PATH)
 
 set(GLAD_GL "deps/glad/include/glad/glad.h"
             "deps/glad/src/glad.c")
