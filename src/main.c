@@ -315,7 +315,7 @@ unsigned nearest_pow2(int length)
     return pow(2,ceil(log(length)/log(2)));
 }
 
-bool create_texture(const char* file, ecs_entity_t entity, unsigned int* twidth, unsigned int* theight)
+bool create_texture(ecs_world_t* s_world, const char* file, ecs_entity_t entity, unsigned int* twidth, unsigned int* theight)
 {
     GLuint id;
     SDL_Surface* img = IMG_Load(file);
@@ -346,12 +346,12 @@ bool create_texture(const char* file, ecs_entity_t entity, unsigned int* twidth,
     glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     // SDL_FreeSurface(img);
     SDL_FreeSurface(img_rgba8888);
-    ecs_set(world, entity, Texture2D, {id, pow_w, pow_h, img->w, img->h, {1.0, 1.0}, img});
+    ecs_set(s_world, entity, Texture2D, {id, pow_w, pow_h, img->w, img->h, {1.0, 1.0}, img});
     *twidth = img->w; *theight = img->h;
     return true;
 }
 
-void create_multitexture_from_gif(GifFileType* gif, ecs_entity_t entity, SDL_Surface** firstFrame)
+void create_multitexture_from_gif(ecs_world_t* s_world, GifFileType* gif, ecs_entity_t entity, SDL_Surface** firstFrame)
 {
     GLuint* ids = malloc(sizeof(GLuint) * gif->ImageCount);
     SavedImage* prevSaved = &gif->SavedImages[gif->ImageCount - 2];
@@ -561,8 +561,8 @@ void create_multitexture_from_gif(GifFileType* gif, ecs_entity_t entity, SDL_Sur
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0.0, 0.0, gif->SWidth, gif->SHeight, GL_RGBA, GL_UNSIGNED_BYTE, (*firstFrame)->pixels);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-        glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR); // GL_NEAREST for pixel art
+        glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR_MIPMAP_LINEAR);
         memmove(pixelBuffer2, pixelBuffer1, bufferSize);
         memmove(pixelBuffer1, pixelBuffer, bufferSize);
         shiftBufferCount += 2;
@@ -575,7 +575,7 @@ void create_multitexture_from_gif(GifFileType* gif, ecs_entity_t entity, SDL_Sur
     free(pixelBuffer1);
     free(pixelBuffer2);
     free(clearSurface);
-    ecs_set(world, entity, MultiTexture2D, {ids, gif->ImageCount});
+    ecs_set(s_world, entity, MultiTexture2D, {ids, gif->ImageCount});
     printf("Created multitexture!\n");
 }
 
@@ -598,10 +598,16 @@ void LoadClipboardFiles(ecs_iter_t* it)
     EventMouseButton* event = ecs_term(it, EventMouseButton, 1);
     const char* clipboard = glfwGetClipboardString(window);
 }
-
-ecs_entity_t load_visual_symbol(ecs_world_t* s_world, char* path)
+typedef struct
 {
     ecs_entity_t node;
+    vec2 size;
+} VisualSymbolCreated;
+
+VisualSymbolCreated load_visual_symbol(ecs_world_t* s_world, char* path, float x, float y, Anchor anchor)
+{
+    ecs_entity_t node;
+    VisualSymbolCreated vsc = {node, {0,0}};
     struct stat info;
     bool validPath = stat(path, &info) == 0;
     bool isDirectory = (S_ISDIR(info.st_mode));
@@ -642,7 +648,7 @@ ecs_entity_t load_visual_symbol(ecs_world_t* s_world, char* path)
             curl_global_cleanup();
         }
     }
-    if (isDirectory) return node;
+    if (isDirectory) return vsc;
     int error;
     GifFileType* gif = DGifOpenFileName(path, &error);
     bool isGif = gif != NULL;
@@ -651,15 +657,13 @@ ecs_entity_t load_visual_symbol(ecs_world_t* s_world, char* path)
     if (!isDirectory)
     {
         node = ecs_new_id(s_world);
-        double xpos, ypos;
-        glfwGetCursorPos(window, &xpos, &ypos);
         unsigned int twidth, theight;
         if (isGif)
         {
             DGifSlurp(gif); // TODO: Move logic to GifAnimator system
             printf("Gif has %d images!\n" ,gif->ImageCount);
             SDL_Surface* firstFrame;
-            create_multitexture_from_gif(gif, node, &firstFrame);
+            create_multitexture_from_gif(s_world, gif, node, &firstFrame);
             ecs_set(s_world, node, Texture2D, {NULL, nearest_pow2(gif->SWidth), nearest_pow2(gif->SHeight), gif->SWidth, gif->SHeight, {1.0, 1.0}, firstFrame});
             // printf("%d stbi frame count!\n", z);
             twidth = gif->SWidth; theight = gif->SHeight;
@@ -670,38 +674,43 @@ ecs_entity_t load_visual_symbol(ecs_world_t* s_world, char* path)
         } else
         {
             printf("Loading %s\n", path);
-            bool created = create_texture(path, node, &twidth, &theight);
-            if (!created) return node;
+            bool created = create_texture(s_world, path, node, &twidth, &theight);
+            vsc.size[0] = twidth;
+            vsc.size[1] = theight;
+            if (!created) return vsc;
         }
-        const Camera* camera = ecs_get(s_world, renderer, Camera);
-        vec4 t;
-        mat4 r;
-        vec3 s;
-        glm_decompose(camera->view, t, r, s);
-        vec3 inverse_s = {1.0/s[0], 1.0/s[1], 1.0/s[2]};
-        xpos *= inverse_s[0];
-        ypos *= inverse_s[1];
-        vec2 translate;
-        glm_vec2_copy(camera->view[3], translate);
-        glm_vec2_mul(translate, inverse_s, translate);
-        vec2 screen = {xpos - twidth/2.0, ypos - theight/2};
-        vec2 position;
-        memset(position, 0, sizeof(vec2));
-        glm_vec2_sub(screen, translate, position);
-        ecs_set(s_world, node, Transform2D, {{position[0], position[1]}, 0.0f, 1.0f, 0});
+        ecs_set(s_world, node, Transform2D, {{x - twidth * anchor.horizontal, y - theight * anchor.vertical}, 0.0f, 1.0f, 0});
         ecs_set(s_world, node, Local2D, {0, 0});
         ecs_set(s_world, node, LocalFile, {path});
     }
-    return node;
+    vsc.node = node;
+    return vsc;
 }
 
 void LoadDroppedFiles(ecs_iter_t* it)
 {
     EventDropFiles* drop = ecs_term(it, EventDropFiles, 1);
+    Camera* camera = ecs_term(it, Camera, 2);
+    double xpos, ypos;
+    glfwGetCursorPos(window, &xpos, &ypos);
+    vec2 cursor_screen_pos = {xpos, ypos};
+    vec2 cursor_world_pos;
+    screen_to_world(camera->view, cursor_screen_pos, cursor_world_pos);
     printf("Load dropped files\n");
+    float x = 0;
+    Anchor place = {0, 0};
+    if (drop->count == 1)
+    {
+        place.horizontal = 0.5;
+        place.vertical = 0.5;
+    }
     for (int i = 0; i < drop->count; i++)
     {
-        load_visual_symbol(it->world, drop->paths[i]);
+        VisualSymbolCreated vsc = load_visual_symbol(it->world, drop->paths[i], x + cursor_world_pos[0], cursor_world_pos[1], place);
+        // ecs_get is not available right away, I would like to understand why this is more
+        // const Texture2D* texture = ecs_get(it->world, entity, Texture2D);
+        
+        x += vsc.size[0];
     }
     free(drop->paths); // TODO: Move to another system and free unused paths
 }
@@ -709,7 +718,8 @@ void LoadDroppedFiles(ecs_iter_t* it)
 void LoadPaintedImage(ecs_iter_t* it)
 {
     EventPaintLoad* paintLoad = ecs_term(it, EventPaintLoad, 1);
-    load_visual_symbol(it->world, paintLoad->filepath);
+    Anchor place = {0, 0};
+    load_visual_symbol(it->world, paintLoad->filepath, 0.0f, 0.0f, place);
     free(paintLoad->filepath);
     ecs_delete(it->world, it->entities[0]);
 }
@@ -960,6 +970,8 @@ void RenderPaintFrame(ecs_iter_t* it)
     Transform2D* transform = ecs_term(it, Transform2D, 3);
     PaintFrame* frame = ecs_term(it, PaintFrame, 4);
 
+    NVGcolor modeColors[3] = {nvgRGBA(0, 255, 195,255), nvgRGBA(172,40,201,255), nvgRGBA(255,68,0,255)};
+
     // TODO: Function to world to screen multiple verts
     vec2 upperLeft = {transform->pos[0], transform->pos[1]};
     world_to_screen(camera->view, upperLeft, upperLeft);
@@ -977,7 +989,8 @@ void RenderPaintFrame(ecs_iter_t* it)
     nvgMoveTo(nano->vg, 0.0f, 0.0f);
     nvgRect(nano->vg, upperLeft[0], upperLeft[1]-h, w, h);
     nvgClosePath(nano->vg);
-    nvgStrokeColor(nano->vg, nvgRGBA(0, 0, 255, 255));
+    // nvgStrokeColor(nano->vg, nvgRGBA(0, 0, 255, 255));
+    nvgStrokeColor(nano->vg, modeColors[frame->interaction_mode]);
     nvgStrokeWidth(nano->vg, 3.0f);
     nvgStroke(nano->vg);
 
@@ -987,6 +1000,20 @@ void RenderPaintFrame(ecs_iter_t* it)
     nvgFillColor(nano->vg, nvgRGBA(255,255,255,255));
     nvgTextAlign(nano->vg, NVG_ALIGN_LEFT|NVG_ALIGN_TOP);
     nvgText(nano->vg, lowerLeft[0], lowerLeft[1] + 12, frame->prompt, NULL);
+    nvgTextAlign(nano->vg, NVG_ALIGN_LEFT|NVG_ALIGN_BOTTOM);
+    nvgFillColor(nano->vg, modeColors[frame->interaction_mode]);
+    if (frame->interaction_mode == 0)
+    {
+        nvgText(nano->vg, upperLeft[0], upperLeft[1] - 12, "txt2img", NULL);
+    }
+    else if (frame->interaction_mode == 1)
+    {
+        nvgText(nano->vg, upperLeft[0], upperLeft[1] - 12, "img2img", NULL);
+    }
+    else if (frame->interaction_mode == 2)
+    {
+        nvgText(nano->vg, upperLeft[0], upperLeft[1] - 12, "inpainting", NULL);
+    }
 }
 
 void MoveDragSelector(ecs_iter_t* it)
@@ -1145,6 +1172,12 @@ void BackspacePaintPrompt(ecs_iter_t* it)
     PaintFrame* paint = ecs_term(it, PaintFrame, 1);
     EventKey* key = ecs_term(it, EventKey, 2);
     size_t prompt_len = strlen(paint->prompt);
+    if (key->action == GLFW_PRESS && key->key == GLFW_KEY_V && key->mods & GLFW_MOD_CONTROL)
+    {
+        // Paste text here
+        const char* clipboard = glfwGetClipboardString(window);
+        strcat(paint->prompt, clipboard);
+    }
     if  (key->key == GLFW_KEY_BACKSPACE && prompt_len > 0 && prompt_len < 255 && (key->action == GLFW_PRESS || key->action == GLFW_REPEAT))
     {
         // paint->prompt[prompt_len] = NULL;
@@ -1154,7 +1187,21 @@ void BackspacePaintPrompt(ecs_iter_t* it)
     if (key->key == GLFW_KEY_ENTER && key->action == GLFW_PRESS)
     {
         pthread_t thread;
-        const char* command = "python ../python/gen_sd.py --prompt ";
+        const char* txt2img = "python ../deps/stable-diffusion/optimizedSD/optimized_txt2img.py --outdir . --prompt ";
+        const char* img2img = "python ../deps/stable-diffusion/optimizedSD/optimized_img2img.py --outdir . --init-img test_save.jpg --prompt ";
+        const char* inpaint = "python ../deps/stable-diffusion/optimizedSD/inpaint_sd.py --init_image test_save.jpg --mask_image test_save_mask.jpg --prompt ";
+        char* command;
+        if (paint->interaction_mode == 0)
+        {
+            command = txt2img;
+        } else if (paint->interaction_mode == 1)
+        {
+            command = img2img;
+        } 
+        else if (paint->interaction_mode == 2)
+        {
+            command = inpaint;
+        }
         char* invoke_sd = malloc(strlen(command) + 256);
         const char* quotationLiteral = "\"";
         const char* space = " ";
@@ -1258,34 +1305,34 @@ void select_visual_symbol(ecs_world_t* world, ecs_entity_t* entity)
 
 void SaveProjectShortcut(ecs_iter_t* it)
 {
-    EventKey* event = ecs_term(it, EventKey, 1);
-    if (event->key == GLFW_KEY_S && event->mods & GLFW_MOD_CONTROL)
-    {
-        printf("Save!\n");
-        ecs_entity_t t = ecs_struct_init(it->world, &(ecs_struct_desc_t) {
-            .entity.name = "T",
-            .members = {
-                "path", {ecs_id(ecs_string_t)}
-            }
-        });
-        ecs_query_t* query = ecs_query_new(world, "Transform2D, LocalFile");
-        ecs_iter_t qIt = ecs_query_iter(world, query);
+    // EventKey* event = ecs_term(it, EventKey, 1);
+    // if (event->key == GLFW_KEY_S && event->mods & GLFW_MOD_CONTROL)
+    // {
+    //     printf("Save!\n");
+    //     ecs_entity_t t = ecs_struct_init(it->world, &(ecs_struct_desc_t) {
+    //         .entity.name = "T",
+    //         .members = {
+    //             "path", {ecs_id(ecs_string_t)}
+    //         }
+    //     });
+    //     ecs_query_t* query = ecs_query_new(world, "Transform2D, LocalFile");
+    //     ecs_iter_t qIt = ecs_query_iter(world, query);
 
-        size_t visualSymbolCount = 0;
-        while (ecs_query_next(&qIt))
-        {
-            Transform2D* transform = ecs_term(&qIt, Transform2D, 1);
-            LocalFile* file = ecs_term(&qIt, LocalFile, 2);
-            for (int32_t i = 0; i < qIt.count; i++)
-            {
-                printf("%s", file[i].path);
-                LocalFile value = {"Test"};
-                char *expr = ecs_ptr_to_json(qIt.world, t, &file[i]);
-                // char* expr = ecs_ptr_to_json(qIt.world, qIt.entities[i], &file[i]);
-                printf("%s\n", expr);
-            }
-        }
-    }
+    //     size_t visualSymbolCount = 0;
+    //     while (ecs_query_next(&qIt))
+    //     {
+    //         Transform2D* transform = ecs_term(&qIt, Transform2D, 1);
+    //         LocalFile* file = ecs_term(&qIt, LocalFile, 2);
+    //         for (int32_t i = 0; i < qIt.count; i++)
+    //         {
+    //             printf("%s", file[i].path);
+    //             LocalFile value = {"Test"};
+    //             char *expr = ecs_ptr_to_json(qIt.world, t, &file[i]);
+    //             // char* expr = ecs_ptr_to_json(qIt.world, qIt.entities[i], &file[i]);
+    //             printf("%s\n", expr);
+    //         }
+    //     }
+    // }
 }
 
 void save_project_to_file(ecs_world_t* save_world, const char* save_file)
@@ -1405,11 +1452,85 @@ void OpenSymbolPath(ecs_iter_t* it)
     }
 }
 
+void IndicateSavePaint(ecs_iter_t* it)
+{
+    PaintFrame* paint = ecs_term(it, PaintFrame, 1);
+    EventKey* event = ecs_term(it, EventKey, 2);
+
+    if (event->key == GLFW_KEY_S && event->mods & GLFW_MOD_CONTROL)
+    {
+        printf("Save paint\n");
+        ecs_set(it->world, AI_painter, EventSavePaintIntersection, {0});
+    }
+    if (event->action == GLFW_PRESS)
+    {
+        if (event->key == GLFW_KEY_F1)
+        {
+            paint->interaction_mode = 0;
+        } else if (event->key == GLFW_KEY_F2)
+        {
+            paint->interaction_mode = 1;
+        } else if (event->key == GLFW_KEY_F3)
+        {
+            paint->interaction_mode = 2;
+        }
+    }
+}
+
+void SavePaintFrameInput(ecs_iter_t* it)
+{
+    // Could render window to texture and crop rect...
+    Transform2D* transform = ecs_term(it, Transform2D, 1);
+    Texture2D* texture = ecs_term(it, Texture2D, 2);
+    Camera* camera = ecs_term(it, Camera, 3);
+    PaintFrame* paint = ecs_term(it, PaintFrame, 4);
+    EventSavePaintIntersection* intersection = ecs_term(it, EventSavePaintIntersection, 5);
+    Transform2D* paintTransform = ecs_term(it, Transform2D, 6);
+    printf("Save paint frame input!");
+    // Save an image file with the visual symbols contained within a paint frame in a transparent image
+    // void* pixels = malloc(paint->w * paint->h * 4);
+    c2AABB frameBounds = {{paintTransform->pos[0], paintTransform->pos[1]}, {paintTransform->pos[0] + paint->w, paintTransform->pos[1] + paint->h}};
+    SDL_Surface* output = SDL_CreateRGBSurface(0, paint->w, paint->h, 32, 0, 0, 0, 0);
+    for (int32_t i = 0; i < it->count; i++)
+    {
+        c2AABB texBounds = {{transform[i].pos[0], transform[i].pos[1]}, {transform[i].pos[0] + texture[i].width, transform[i].pos[1] + texture[i].height}};
+        // Determine if the texture overlaps with the paint frame (don't consider scale or rotation yet)
+        if (c2AABBtoAABB(frameBounds, texBounds))
+        {
+            // What rect of frame is the texture in
+            float paint_min_x = c2Max(0, texBounds.min.x);
+            float paint_min_y = c2Max(0, texBounds.min.y);
+            float paint_max_y = c2Min(frameBounds.max.y, texBounds.max.y);
+            c2AABB paintRect = {{paint_min_x, paint_min_y}, 
+            {c2Min(frameBounds.max.x, texBounds.max.x), paint_max_y}};
+            // printf("\nPaint overlap section is min(%f, %f), max(%f, %f)\n", paintRect.min.x, paintRect.min.y, paintRect.max.x, paintRect.max.y);
+
+            // What rect of the texture overlaps the frame
+            float min_x = c2Max(0, frameBounds.min.x - texBounds.min.x);
+            float min_y = c2Max(0, frameBounds.min.y - texBounds.min.y);
+            printf("Max y %d\n", texBounds.max.y);
+            c2AABB textureRect = {{min_x, min_y}, 
+            {c2Min(min_x + frameBounds.max.x - paint_min_x, min_x + texBounds.max.x), c2Min(min_y + frameBounds.max.y - paint_min_y, min_y + texBounds.max.y)}};
+            // printf("Texture overlap section is min(%f, %f), max(%f, %f)\n", textureRect.min.x, textureRect.min.y, textureRect.max.x, textureRect.max.y);
+
+            const SDL_Rect src_rect = {textureRect.min.x, textureRect.min.y, textureRect.max.x, textureRect.max.y};
+            const SDL_Rect dst_rect = {paintRect.min.x, paintRect.min.y, paintRect.max.x, paintRect.max.y};
+            SDL_BlitSurface(texture[i].img, &src_rect, output, &dst_rect);
+            IMG_SaveJPG(output, "test_save.jpg", 100);
+
+        }
+        printf("Check texture with %d width", texture[i].width);
+    }
+    ecs_remove(it->world, AI_painter, EventSavePaintIntersection);
+}
+
 void SelectVisualSymbolQuery(ecs_iter_t* it)
 {
     // printf("Select visual symbol\n");
     Camera* camera = ecs_term(it, Camera, 1);
     EventMouseButton* event = ecs_term(it, EventMouseButton, 2);
+    // ActionOnMouseInput* mouseInputAction = ecs_term(it, ActionOnMouseInput, 3);
+    printf("Select query\n");
     DragSelector* selector = NULL;
     if (ecs_has(it->world, input, DragSelector))
     {
@@ -1524,7 +1645,9 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
                     }
                 } else
                 {
-                    // Deselect nodes
+                    // Determine if the scale selectors were grabbed
+                    // if (!mouseInputAction->active)
+                    // {
                     for (int32_t i = 0; i < curSelectedCount; i++)
                     {
                         // ecs_term_iter is not correct! Need to use something else to create the iter
@@ -1547,6 +1670,7 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
                     {
                         ecs_set(it->world, input, DragSelector, {xpos, ypos, 0, 0});
                     }
+                    // }
                 }
             }
             printf(", Select query end %f\n", it->world_time);
@@ -1830,10 +1954,11 @@ void ApparateVisualSymbols(ecs_iter_t* it)
     {
         strcat(buf, next->d_name);
         printf("Path is %s\n", buf);
-        ecs_entity_t node = load_visual_symbol(it->world, buf);
-        if (ecs_is_valid(it->world, node))
+        Anchor place = {0, 0};
+        VisualSymbolCreated vsc = load_visual_symbol(it->world, buf, 0, 0, place);
+        if (ecs_is_valid(it->world, vsc.node))
         {
-            test[symbol_count] = node;
+            test[symbol_count] = vsc.node;
             symbol_count++;
         }
         memset(&buf[index], 0, sizeof(next->d_name));
@@ -1925,30 +2050,120 @@ void cursor_position_callback(GLFWwindow* window, double xpos, double ypos)
 int main(int argc, char const *argv[])
 {
     srand(time(0));
+
+
     // evolve_layout(NULL);
 
     // system("python ../python/gen_sd.py");
 
-    // Test python
+    // export PATH=/home/aeri/miniconda3/envs/ldm/bin/:$PATH
+    // char* path;
+    // // I changed path to /home/aeri/miniconda3/envs/ldm/bin, I'm not sure if this is required
+    // path = getenv("PATH");
+    // const char* python_env = "/home/aeri/miniconda3/envs/ldm/bin:";
+    // char* update_path = malloc(strlen(python_env) + strlen(path) + 1);
+    // strcat(update_path, python_env);
+    // strcat(update_path, path);
+    // setenv("PATH", update_path, 1);
+    // free(update_path);
+
+    // // Test python
     // wchar_t *program = Py_DecodeLocale(argv[0], NULL);
     // if (program == NULL) {
     //     fprintf(stderr, "Fatal error: cannot decode argv[0]\n");
     //     exit(1);
     // }
-    // Py_SetProgramName(program);  /* optional but recommended */
-    // wchar_t *home = Py_DecodeLocale("/home/aeri/miniconda3/envs/ldm", NULL);
+    // Py_SetProgramName(program);
+    // // https://docs.python.org/3/c-api/init.html#c.Py_SetPythonHome
+    // wchar_t *home = Py_DecodeLocale("/home/aeri/miniconda3/envs/ldm", NULL); // Hooray!
     // Py_SetPythonHome(home);
-    // // wchar_t *path = Py_DecodeLocale("/home/aeri/miniconda3/envs/ldm/lib/python3.8/site-packages/", NULL);
-    // // Py_SetPath(path);
     // Py_Initialize();
-    // // PyRun_SimpleString("from time import time,ctime\n"
-    // //                    "print('Today is', ctime(time()))\n");
+    // // Add to path any directories with local modules
+    // // PyRun_SimpleString("import sys\nsys.path.append('../deps/stable-diffusion/optimizedSD')"); // \nsys.path.append('/home/aeri/.local/lib/python3.8/site-packages')
+    // PyRun_SimpleString("import os\nimport torch\nprint(torch.__version__)\n");
+    // // FILE *script = fopen("../deps/stable-diffusion/optimizedSD/optimized_txt2img.py", "r");
+    // // PyRun_SimpleFile(script, "optimized_txt2img.py");
     // FILE *script = fopen("../python/gen_sd.py", "r");
-    // PyRun_SimpleFile(script, "sd_gen.py");
+    // PyRun_SimpleFile(script, "gen_sd.py");
+    // printf("%ls\n", Py_GetProgramFullPath());
     // if (Py_FinalizeEx() < 0) {
     //     exit(120);
     // }
     // PyMem_RawFree(program);
+
+    PyObject *pName, *pModule, *pFunc;
+    PyObject *pArgs, *pValue;
+    int i;
+
+    if (argc < 3) {
+        fprintf(stderr,"Usage: call pythonfile funcname [args]\n");
+        return 1;
+    }
+    wchar_t *program = Py_DecodeLocale(argv[0], NULL);
+    if (program == NULL) {
+        fprintf(stderr, "Fatal error: cannot decode argv[0]\n");
+        exit(1);
+    }
+    Py_SetProgramName(program);
+    // https://docs.python.org/3/c-api/init.html#c.Py_SetPythonHome
+    wchar_t *home = Py_DecodeLocale("/home/aeri/miniconda3/envs/ldm", NULL); // Hooray!
+    Py_SetPythonHome(home);
+
+    Py_Initialize();
+    PyRun_SimpleString("import sys\nsys.path.append('../python/')");
+    pName = PyUnicode_DecodeFSDefault(argv[1]);
+    /* Error checking of pName left out */
+
+    pModule = PyImport_Import(pName);
+    Py_DECREF(pName);
+
+    if (pModule != NULL) {
+        pFunc = PyObject_GetAttrString(pModule, argv[2]);
+        /* pFunc is a new reference */
+
+        if (pFunc && PyCallable_Check(pFunc)) {
+            pArgs = PyTuple_New(argc - 3);
+            for (i = 0; i < argc - 3; ++i) {
+                pValue = PyLong_FromLong(atoi(argv[i + 3]));
+                if (!pValue) {
+                    Py_DECREF(pArgs);
+                    Py_DECREF(pModule);
+                    fprintf(stderr, "Cannot convert argument\n");
+                    return 1;
+                }
+                /* pValue reference stolen here: */
+                PyTuple_SetItem(pArgs, i, pValue);
+            }
+            pValue = PyObject_CallObject(pFunc, pArgs);
+            Py_DECREF(pArgs);
+            if (pValue != NULL) {
+                printf("Result of call: %ld\n", PyLong_AsLong(pValue));
+                Py_DECREF(pValue);
+            }
+            else {
+                Py_DECREF(pFunc);
+                Py_DECREF(pModule);
+                PyErr_Print();
+                fprintf(stderr,"Call failed\n");
+                return 1;
+            }
+        }
+        else {
+            if (PyErr_Occurred())
+                PyErr_Print();
+            fprintf(stderr, "Cannot find function \"%s\"\n", argv[2]);
+        }
+        Py_XDECREF(pFunc);
+        Py_DECREF(pModule);
+    }
+    else {
+        PyErr_Print();
+        fprintf(stderr, "Failed to load \"%s\"\n", argv[1]);
+        return 1;
+    }
+    if (Py_FinalizeEx() < 0) {
+        return 120;
+    }
 
     buffer.index = 0;
     buffer.count = 0;
@@ -1982,6 +2197,7 @@ int main(int argc, char const *argv[])
     ECS_COMPONENT_DEFINE(world, PaintFrame);
     ECS_COMPONENT_DEFINE(world, WaitThreadComplete);
     ECS_COMPONENT_DEFINE(world, EventPaintLoad);
+    ECS_COMPONENT_DEFINE(world, EventSavePaintIntersection);
     ECS_TAG_DEFINE(world, Grabbed);
     ECS_TAG_DEFINE(world, DragHover);
     ECS_TAG_DEFINE(world, TakeSnapshot);
@@ -1992,14 +2208,13 @@ int main(int argc, char const *argv[])
 
     AI_painter = ecs_set_name(world, 0, "AI_painter");
     ecs_set(world, AI_painter, Transform2D, {0.0f, 0.0f});
-    ecs_set(world, AI_painter, PaintFrame, {512.0f, 512.0f, ""});
+    ecs_set(world, AI_painter, PaintFrame, {512.0f, 512.0f, 0, ""});
 
     ECS_OBSERVER(world, LoadPaintedImage, EcsOnSet, EventPaintLoad);
     ECS_OBSERVER(world, SetupBatchRenderer, EcsOnSet, BatchSpriteRenderer);
     ECS_OBSERVER(world, SetupCamera, EcsOnSet, Camera);
     ECS_OBSERVER(world, SetInitialMultitexture, EcsOnSet, Texture2D, MultiTexture2D);
     ECS_OBSERVER(world, deallocate_texture, EcsOnRemove, Texture2D);
-    ECS_OBSERVER(world, LoadDroppedFiles, EcsOnSet, EventDropFiles);
     ECS_OBSERVER(world, ApparateVisualSymbols, EcsOnSet, BrowseDirectory, SavedData, [inout] *());
     ECS_OBSERVER(world, SetupNanoVG, EcsOnSet, NanoVG);
 
@@ -2045,14 +2260,19 @@ int main(int argc, char const *argv[])
     ecs_set(world, renderer, BatchSpriteRenderer, {});
     ecs_set(world, renderer, NanoVG, {nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES | NVG_DEBUG)});
 
-    if (argc > 1)
-    {
-        ecs_entity_t nav_command = ecs_new_id(world);
-        ecs_add(world, nav_command, Transform2D);
-        ecs_add(world, nav_command, BrowseDirectory);
-        ecs_set(world, nav_command, SavedData, {argv[1]});
-    }
+    ECS_OBSERVER(world, LoadDroppedFiles, EcsOnSet, EventDropFiles, Camera(renderer));
 
+    // if (argc > 1)
+    // {
+    //     ecs_entity_t nav_command = ecs_new_id(world);
+    //     ecs_add(world, nav_command, Transform2D);
+    //     ecs_add(world, nav_command, BrowseDirectory);
+    //     ecs_set(world, nav_command, SavedData, {argv[1]});
+    // }
+
+    ECS_SYSTEM(world, SavePaintFrameInput, EcsPreFrame, Transform2D, Texture2D, Camera(renderer), PaintFrame(AI_painter), EventSavePaintIntersection(AI_painter), Transform2D(AI_painter), [inout] *());
+
+    ECS_SYSTEM(world, IndicateSavePaint, EcsPreFrame, PaintFrame, EventKey(input));
     ECS_SYSTEM(world, CheckThreadComplete, EcsPreFrame, WaitThreadComplete, [inout] *());
     ECS_SYSTEM(world, ResetCursor, EcsPreFrame, EventMouseMotion);
     ECS_SYSTEM(world, AnimateGif, EcsPreUpdate, GifAnimator, Texture2D, MultiTexture2D);

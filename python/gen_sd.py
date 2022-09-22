@@ -8,6 +8,8 @@ import torch
 from torch.cuda.amp import autocast
 from diffusers import StableDiffusionPipeline, DDIMScheduler
 import random
+# def test_function():
+#     print("Hello!");
 parser = argparse.ArgumentParser()
 parser.add_argument(
     "--prompt",
@@ -25,10 +27,10 @@ parser.add_argument(
 )
 opt = parser.parse_args()
 
-model_id = "CompVis/stable-diffusion-v1-4"
+model_id = "home/aeri/projects/gui-gal/deps/stable-diffusion/models/ldm/stable-diffusion-v1/"
 device = "cuda"
 
-pipe = StableDiffusionPipeline.from_pretrained(model_id, use_auth_token=True)
+pipe = StableDiffusionPipeline.from_pretrained(model_id, use_auth_token=False)
 pipe = pipe.to(device)
 def dummy(images, **kwargs): return images, False
 pipe.safety_checker = dummy

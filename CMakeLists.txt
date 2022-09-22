@@ -1,10 +1,11 @@
 cmake_minimum_required(VERSION 3.0)
 
-set(CMAKE_BUILD_TYPE Debug)
+set(CMAKE_BUILD_TYPE Release)
 
 set(EDITOR_NAME gui-gal)
 set(SOURCE_PATH "src")
 set(PYTHONHOME "/home/aeri/miniconda3/envs/ldm/bin/python3.8")
+set(DCMAKE_VERBOSE_MAKEFILE true)
 
 project(${EDITOR_NAME})
 
@@ -23,8 +24,10 @@ include_directories("deps/flecs/include")
 include_directories("deps/gaul/src")
 include_directories("deps/gaul/util")
 
+
 # Embed Python for Stable Diffusion
 # https://docs.python.org/3/extending/embedding.html
+# /home/aeri/miniconda3/envs/ldm/bin/python3.8-config --cflags
 include_directories("/home/aeri/miniconda3/envs/ldm/include/python3.8/")
 # find_library(python3.8 PATHS "/home/aeri/miniconda3/envs/ldm/bin/python3.8" NO_DEFAULT_PATH)
 
@@ -49,7 +52,6 @@ link_directories("deps/gaul/src/.libs")
 # file(GLOB_RECURSE GIFLIB_SOURCES "deps/giflib-5.2.1/*.c")
 # add_library(giflib SHARED GIFLIB_SOURCES)
 # execute_process(WORKING_DIRECTORY "./deps/giflib-5.2.1/" COMMAND make)
-
 
 add_executable(${EDITOR_NAME} ${SOURCES} ${GLAD_GL} ${NANOVG})
 target_link_libraries(${EDITOR_NAME} glfw SDL2 SDL2_image flecs gif curl gaul gaul_util python3.8)

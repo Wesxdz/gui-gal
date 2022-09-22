@@ -98,7 +98,8 @@ ECS_COMPONENT_DECLARE(DragSelector);
 
 typedef struct {
     float w, h;
-    char prompt[256];
+    int interaction_mode;
+    char prompt[1024];
 } PaintFrame;
 ECS_COMPONENT_DECLARE(PaintFrame);
 
@@ -167,6 +168,11 @@ typedef struct {
     double yoffset;
 } EventScroll;
 ECS_COMPONENT_DECLARE(EventScroll);
+
+typedef struct {
+    int filter; // TODO: 
+} EventSavePaintIntersection;
+ECS_COMPONENT_DECLARE(EventSavePaintIntersection);
 
 typedef struct {
     GLFWwindow* window;
