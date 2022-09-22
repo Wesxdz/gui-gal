@@ -2111,33 +2111,34 @@ int main(int argc, char const *argv[])
 
     Py_Initialize();
     PyRun_SimpleString("import sys\nsys.path.append('../python/')");
-    pName = PyUnicode_DecodeFSDefault(argv[1]);
+    pName = PyUnicode_DecodeFSDefault("rtsr"); // argv[1]
     /* Error checking of pName left out */
 
     pModule = PyImport_Import(pName);
     Py_DECREF(pName);
 
     if (pModule != NULL) {
-        pFunc = PyObject_GetAttrString(pModule, argv[2]);
+        pFunc = PyObject_GetAttrString(pModule, "multiply"); // argv[2]
         /* pFunc is a new reference */
 
         if (pFunc && PyCallable_Check(pFunc)) {
-            pArgs = PyTuple_New(argc - 3);
-            for (i = 0; i < argc - 3; ++i) {
-                pValue = PyLong_FromLong(atoi(argv[i + 3]));
-                if (!pValue) {
-                    Py_DECREF(pArgs);
-                    Py_DECREF(pModule);
-                    fprintf(stderr, "Cannot convert argument\n");
-                    return 1;
-                }
-                /* pValue reference stolen here: */
-                PyTuple_SetItem(pArgs, i, pValue);
-            }
+            pArgs = PyTuple_New(0);
+            // for (i = 0; i < argc - 3; ++i) {
+            //     pValue = PyLong_FromLong(atoi(argv[i + 3]));
+            //     if (!pValue) {
+            //         Py_DECREF(pArgs);
+            //         Py_DECREF(pModule);
+            //         fprintf(stderr, "Cannot convert argument\n");
+            //         return 1;
+            //     }
+            //     /* pValue reference stolen here: */
+            //     PyTuple_SetItem(pArgs, i, pValue);
+            // }
             pValue = PyObject_CallObject(pFunc, pArgs);
             Py_DECREF(pArgs);
             if (pValue != NULL) {
-                printf("Result of call: %ld\n", PyLong_AsLong(pValue));
+                char* s = PyUnicode_AsUTF8(pValue)
+;                printf("Result of call: %s\n", s);
                 Py_DECREF(pValue);
             }
             else {
