@@ -33,6 +33,9 @@
 pthread_mutex_t mutex1 = PTHREAD_MUTEX_INITIALIZER;
 bool thread_started = false;
 
+// Mulithreading for speech to text
+pthread_mutex_t mutex_stt = PTHREAD_MUTEX_INITIALIZER;
+
 void print_log(GLuint object)
 {
 	GLint log_length = 0;
@@ -1120,6 +1123,70 @@ void TypePaintPrompt(ecs_iter_t* it)
     strcat(paint->prompt, &charEntry->codepoint);
 }
 
+static char* speech = "";
+static PyObject*
+flit_voice_command(PyObject* self, PyObject* args) // PyObject* params
+{
+    pthread_mutex_lock(&mutex_stt);
+    PyArg_ParseTuple(args, "s", &speech);
+    // printf("Speech is %s\n", speech);
+    pthread_mutex_unlock(&mutex_stt);
+    return PyLong_FromLong(0);
+}
+
+static PyMethodDef FlitMethods[] = {
+    {"voice_command", flit_voice_command, METH_VARARGS, //  | METH_KEYWORDS,
+    "Update Flit with voice context"},
+    {NULL, NULL, 0, NULL}
+};
+
+static PyModuleDef FlitModule = {
+    PyModuleDef_HEAD_INIT, "flit", NULL, -1, FlitMethods,
+    NULL, NULL, NULL, NULL
+};
+
+static PyObject* PyInit_flit(void)
+{
+    return PyModule_Create(&FlitModule);
+}
+
+void update_prompt_text(void* ptr)
+{
+    // Load nn
+    // Start recording stream
+    // Continually call function to get updates to block queue
+    // If there is an update, call an event in the ECS to match with PaintFrame
+    // Set prompt :)
+
+    PyObject *pName, *pModule, *pFunc;
+    PyObject *pArgs, *pValue;
+    int i;
+
+    printf("Loading speech recognition systems...\n");
+    wchar_t *program = Py_DecodeLocale("rtsr", NULL);
+    if (program == NULL) {
+        fprintf(stderr, "Fatal error: cannot decode argv[0]\n");
+        exit(1);
+    }
+    Py_SetProgramName(program);
+    // https://docs.python.org/3/c-api/init.html#c.Py_SetPythonHome
+    wchar_t *home = Py_DecodeLocale("/home/aeri/miniconda3/envs/ldm", NULL); // Hooray!
+    Py_SetPythonHome(home);
+
+    PyImport_AppendInittab("flit", &PyInit_flit);
+    Py_Initialize();
+    PyRun_SimpleString("import sys\nsys.path.append('../python/')");
+    pName = PyUnicode_DecodeFSDefault("rtsr"); // argv[1]
+    /* Error checking of pName left out */
+
+    pModule = PyImport_Import(pName);
+    Py_DECREF(pName);
+    Py_DECREF(pModule);
+    if (Py_FinalizeEx() < 0) {
+        return 120;
+    }
+}
+
 void generate_image(void* ptr)
 {
     pthread_mutex_lock(&mutex1);
@@ -1146,6 +1213,18 @@ void image_gen_completed(ecs_iter_t* it, void* data)
     // ecs_defer_begin(it->world);
     // load_visual_symbol(it->world, filepath);
     // ecs_defer_end(it->world);
+}
+
+void UpdatePromptFromSpeech(ecs_iter_t* it)
+{
+    PaintFrame* paint = ecs_term(it, PaintFrame, 1);
+    int locked = pthread_mutex_trylock(&mutex_stt);
+    if (!locked)
+    {
+        // TODO: Only append new speech to allow text editing
+        strcpy(paint[0].prompt, speech);
+        pthread_mutex_unlock(&mutex_stt);
+    }
 }
 
 void CheckThreadComplete(ecs_iter_t* it)
@@ -2052,6 +2131,10 @@ int main(int argc, char const *argv[])
     srand(time(0));
 
 
+    // Startup speech to text thread
+    pthread_t stt_thread;
+    pthread_create(&stt_thread, NULL, update_prompt_text, (void*)NULL);
+
     // evolve_layout(NULL);
 
     // system("python ../python/gen_sd.py");
@@ -2090,81 +2173,6 @@ int main(int argc, char const *argv[])
     //     exit(120);
     // }
     // PyMem_RawFree(program);
-
-    PyObject *pName, *pModule, *pFunc;
-    PyObject *pArgs, *pValue;
-    int i;
-
-    if (argc < 3) {
-        fprintf(stderr,"Usage: call pythonfile funcname [args]\n");
-        return 1;
-    }
-    wchar_t *program = Py_DecodeLocale(argv[0], NULL);
-    if (program == NULL) {
-        fprintf(stderr, "Fatal error: cannot decode argv[0]\n");
-        exit(1);
-    }
-    Py_SetProgramName(program);
-    // https://docs.python.org/3/c-api/init.html#c.Py_SetPythonHome
-    wchar_t *home = Py_DecodeLocale("/home/aeri/miniconda3/envs/ldm", NULL); // Hooray!
-    Py_SetPythonHome(home);
-
-    Py_Initialize();
-    PyRun_SimpleString("import sys\nsys.path.append('../python/')");
-    pName = PyUnicode_DecodeFSDefault("rtsr"); // argv[1]
-    /* Error checking of pName left out */
-
-    pModule = PyImport_Import(pName);
-    Py_DECREF(pName);
-
-    if (pModule != NULL) {
-        pFunc = PyObject_GetAttrString(pModule, "multiply"); // argv[2]
-        /* pFunc is a new reference */
-
-        if (pFunc && PyCallable_Check(pFunc)) {
-            pArgs = PyTuple_New(0);
-            // for (i = 0; i < argc - 3; ++i) {
-            //     pValue = PyLong_FromLong(atoi(argv[i + 3]));
-            //     if (!pValue) {
-            //         Py_DECREF(pArgs);
-            //         Py_DECREF(pModule);
-            //         fprintf(stderr, "Cannot convert argument\n");
-            //         return 1;
-            //     }
-            //     /* pValue reference stolen here: */
-            //     PyTuple_SetItem(pArgs, i, pValue);
-            // }
-            pValue = PyObject_CallObject(pFunc, pArgs);
-            Py_DECREF(pArgs);
-            if (pValue != NULL) {
-                char* s = PyUnicode_AsUTF8(pValue)
-;                printf("Result of call: %s\n", s);
-                Py_DECREF(pValue);
-            }
-            else {
-                Py_DECREF(pFunc);
-                Py_DECREF(pModule);
-                PyErr_Print();
-                fprintf(stderr,"Call failed\n");
-                return 1;
-            }
-        }
-        else {
-            if (PyErr_Occurred())
-                PyErr_Print();
-            fprintf(stderr, "Cannot find function \"%s\"\n", argv[2]);
-        }
-        Py_XDECREF(pFunc);
-        Py_DECREF(pModule);
-    }
-    else {
-        PyErr_Print();
-        fprintf(stderr, "Failed to load \"%s\"\n", argv[1]);
-        return 1;
-    }
-    if (Py_FinalizeEx() < 0) {
-        return 120;
-    }
 
     buffer.index = 0;
     buffer.count = 0;
@@ -2315,6 +2323,7 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, MouseEndAction, EcsPreFrame, EventMouseButton, ActionOnMouseInput);
     ECS_SYSTEM(world, MouseAffectAction, EcsOnUpdate, EventMouseMotion(input), ActionOnMouseInput(input), Camera(renderer), Transform2D, Texture2D);
 
+    ECS_SYSTEM(world, UpdatePromptFromSpeech, EcsOnUpdate, PaintFrame(AI_painter));
 
     glfwShowWindow(window);
 
