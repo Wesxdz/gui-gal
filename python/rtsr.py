@@ -73,11 +73,6 @@ def update_speech_eval(block):
     # print(f"SS{len(speech_segments)} blocks{len(blocks)}\n")
     # print("Finished decoding!\n")
 
-# def start_recording():
-#     instream = sd.InputStream(samplerate=fs, blocksize=block_size, device=sd.default.device, channels=1, dtype='float32', latency='low', extra_settings=None, callback=evaluate_speed, finished_callback=None, clip_off=None, dither_off=None, never_drop_input=None, prime_output_buffers_using_stream_callback=None)
-#     instream.__enter__()
-#     print("Recording!\n")
-
 def process_recording():
     global speech_in_progress
     global blocks
