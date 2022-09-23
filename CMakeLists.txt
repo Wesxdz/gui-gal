@@ -1,15 +1,45 @@
 cmake_minimum_required(VERSION 3.0)
 
-set(CMAKE_BUILD_TYPE Release)
+# set(CMAKE_BUILD_TYPE Release)
+
+set(CMAKE_SYSTEM_NAME Linux)
+set(CMAKE_PLATFORM Linux)
 
 set(EDITOR_NAME gui-gal)
 set(SOURCE_PATH "src")
-set(PYTHONHOME "/home/aeri/miniconda3/envs/ldm/bin/python3.8")
+# set(PYTHONHOME "/home/aeri/miniconda3/envs/ldm/bin/python3.8")
 set(DCMAKE_VERBOSE_MAKEFILE true)
+
+# Use Anaconda compiler, otherwise .so's like _ssl module will not work properly
+# https://conda.io/projects/conda-build/en/latest/resources/compiler-tools.html
+# set(CMAKE_C_COMPILER "/home/aeri/miniconda3/envs/ldm/bin/x86_64-conda-linux-gnu-cc")
+# set(CMAKE_FIND_ROOT_PATH "/home/aeri/miniconda3/envs/ldm/x86_64-conda-linux-gnu/sysroot/") # CMAKE_SYSROOT
+
+# To see the default compiler header includes
+# `gcc -print-prog-name=cpp` -v
+# X11 is here!
+# include_directories("/usr/include/")
+
+# cross-linux.cmake
+# search for programs in the build host directories
+# set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+# for libraries and headers in the target directories
+# set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+# set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+
+# god-awful hack because it seems to not run correct tests to determine this:
+# set(__CHAR_UNSIGNED___EXITCODE 1)
 
 project(${EDITOR_NAME})
 
+# /home/aeri/miniconda3/envs/ldm/bin/python3.8-config --cflags
+# add_compile_options(-I/usr/include -L/usr/include -I/usr/local/include -L/usr/local/include)
+# add_compile_options(-I/home/aeri/miniconda3/envs/ldm/include/python3.8 -Wno-unused-result -Wsign-compare -march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O3 -ffunction-sections -pipe -isystem /home/aeri/miniconda3/envs/ldm/include -fdebug-prefix-map=/tmp/build/80754af9/python_1599203911753/work=/usr/local/src/conda/python-3.8.5 -fdebug-prefix-map=/home/aeri/miniconda3/envs/ldm=/usr/local/src/conda-prefix -fuse-linker-plugin -ffat-lto-objects -flto-partition=none -flto -DNDEBUG -fwrapv -O3 -Wall)
+# /home/aeri/miniconda3/envs/ldm/bin/python3.8-config --ldflags
+# add_link_options(-L/home/aeri/miniconda3/envs/ldm/lib/python3.8/config-3.8-x86_64-linux-gnu -L/home/aeri/miniconda3/envs/ldm/lib -lcrypt -lpthread -ldl -lutil -lrt -lm)
+
 find_package(SDL2 REQUIRED)
+
 
 include_directories("deps")
 # include_directories("deps/emscripten/system/include")
@@ -27,7 +57,7 @@ include_directories("deps/gaul/util")
 
 # Embed Python for Stable Diffusion
 # https://docs.python.org/3/extending/embedding.html
-# /home/aeri/miniconda3/envs/ldm/bin/python3.8-config --cflags
+
 include_directories("/home/aeri/miniconda3/envs/ldm/include/python3.8/")
 # find_library(python3.8 PATHS "/home/aeri/miniconda3/envs/ldm/bin/python3.8" NO_DEFAULT_PATH)
 
@@ -54,4 +84,7 @@ link_directories("deps/gaul/src/.libs")
 # execute_process(WORKING_DIRECTORY "./deps/giflib-5.2.1/" COMMAND make)
 
 add_executable(${EDITOR_NAME} ${SOURCES} ${GLAD_GL} ${NANOVG})
+# target_compile_options(${EDITOR_NAME} -I/home/aeri/miniconda3/envs/ldm/include/python3.8 -Wno-unused-result -Wsign-compare -march=nocona -mtune=haswell -ftree-vectorize -fPIC -fstack-protector-strong -fno-plt -O3 -ffunction-sections -pipe -isystem /home/aeri/miniconda3/envs/ldm/include -fdebug-prefix-map=/tmp/build/80754af9/python_1599203911753/work=/usr/local/src/conda/python-3.8.5 -fdebug-prefix-map=/home/aeri/miniconda3/envs/ldm=/usr/local/src/conda-prefix -fuse-linker-plugin -ffat-lto-objects -flto-partition=none -flto -DNDEBUG -fwrapv -O3 -Wall)
+# target_link_options(${EDITOR_NAME} -L/home/aeri/miniconda3/envs/ldm/lib/python3.8/config-3.8-x86_64-linux-gnu -L/home/aeri/miniconda3/envs/ldm/lib  -lcrypt -lpthread -ldl  -lutil -lrt -lm -lm)
+
 target_link_libraries(${EDITOR_NAME} glfw SDL2 SDL2_image flecs gif curl gaul gaul_util python3.8)

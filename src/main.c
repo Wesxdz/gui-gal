@@ -19,7 +19,7 @@
 #include "nanovg.h"
 #include "nanovg_gl.h"
 #include "nvgutil.h"
-#include <pthread.h>`
+#include <pthread.h>
 
 #include "curl/curl.h"
 
@@ -1150,6 +1150,106 @@ static PyObject* PyInit_flit(void)
     return PyModule_Create(&FlitModule);
 }
 
+void stable_diffusion_core(void* ptr)
+{
+
+    // python ../deps/stable-diffusion/optimizedSD/simple_txt2img.py
+    // Why does function work from direct python call but not from C embed?
+
+    // not caused by multithreading
+    // it has to do with environment likely
+
+    // Figure out how to fix the SSL Module not available... :/
+    // self.ConnectionCls is DummyConnection
+    // failed ConnectionCls import
+    // What is ConnectionCLs, how do I import it?
+    // Do I need to link to certificate directory for SSL access?
+    // certs for miniconda are at /home/aeri/miniconda3/ssl/
+
+    // tried pip install --trusted-host pypi.python.org linkchecker
+    // fail
+
+    // try appending all PATH envs related to python...
+    // fail
+
+    // try import ssl
+    // this causes error, promising!
+    // ImportError: /home/aeri/miniconda3/envs/ldm/lib/python3.8/lib-dynload/../../libssl.so.1.1: undefined symbol: EVP_idea_cbc, version OPENSSL_1_1_0
+    // /home/aeri/miniconda3/lib/python3.8/lib-dynload/
+    // I *think* this may be related to compilation flags preventing linking to the .so here...
+    // 1.6 https://docs.python.org/3/extending/embedding.html
+    // Next step is to compile with recommended flags
+    // lto1: fatal error: bytecode stream in file ‘/home/aeri/miniconda3/envs/ldm/lib/python3.8/config-3.8-x86_64-linux-gnu/libpython3.8.a’ generated with LTO version 6.0 instead of the expected 8.1
+    // makefile is 
+    // /home/aeri/miniconda3/envs/ldm/lib/python3.8/config-3.8-x86_64-linux-gnu/
+    // CC=x86_64-conda_cos6-linux-gnu-gcc -pthread
+    // (vs normal python is x86_64-linux-gnu-gcc)
+
+    // If I'm not able to figure this out, I can try to run SD from a local diffuers model
+
+    // Goal is to provide a function to input request details and return image(s) paths
+    // Also need to call a C function from Python to update progress for responsive UI
+    wchar_t *program = Py_DecodeLocale("simple_txt2img", NULL);
+    if (program == NULL) {
+        fprintf(stderr, "Fatal error: cannot decode argv[0]\n");
+        exit(1);
+    }
+    Py_SetProgramName(program);
+    // https://docs.python.org/3/c-api/init.html#c.Py_SetPythonHome
+    wchar_t *home = Py_DecodeLocale("/home/aeri/miniconda3/envs/ldm", NULL); // Hooray!
+    Py_SetPythonHome(home);
+    Py_Initialize();
+    // Add to path any directories with local modules
+    PyRun_SimpleString("import sys\nsys.path.append('../deps/stable-diffusion/optimizedSD')\nsys.path.append('/home/aeri/miniconda3/envs/ldm/lib/python3.8')"); //\nsys.path.append('/home/aeri/.local/lib/python3.8/site-packages')\n // sys.path.append('/home/aeri/miniconda3/envs/ldm/bin')\nsys.path.append('/home/aeri/miniconda3/envs/ldm/bin')\nsys.path.append('/home/aeri/miniconda3/bin')\nsys.path.append('/home/aeri/.local/bin')\nsys.path.append('/home/aeri/miniconda3/condabin')
+    
+    // FILE *script = fopen("../deps/stable-diffusion/optimizedSD/simple_txt2img.py", "r");
+    // PyRun_SimpleFile(script, "simple_txt2img");
+
+    PyObject *pName, *pModule, *pFunc;
+    PyObject *pArgs, *pValue;
+    
+    pName = PyUnicode_DecodeFSDefault("simple_txt2img");
+    pModule = PyImport_Import(pName);
+    Py_DECREF(pName);
+
+    if (pModule != NULL) {
+        pFunc = PyObject_GetAttrString(pModule, "simple");
+        /* pFunc is a new reference */
+
+        if (pFunc && PyCallable_Check(pFunc)) {
+            pArgs = PyTuple_New(0);
+            pValue = PyObject_CallObject(pFunc, pArgs);
+            Py_DECREF(pArgs);
+            if (pValue != NULL) {
+                printf("Result of call: %s\n", PyUnicode_AsUTF8(pValue));
+                Py_DECREF(pValue);
+            }
+            else {
+                Py_DECREF(pFunc);
+                Py_DECREF(pModule);
+                PyErr_Print();
+                fprintf(stderr,"Call failed\n");
+                return 1;
+            }
+        }
+        else {
+            if (PyErr_Occurred())
+                PyErr_Print();
+            fprintf(stderr, "Cannot find function \"%s\"\n", "simple");
+        }
+        Py_XDECREF(pFunc);
+        Py_DECREF(pModule);
+    }
+    else {
+        PyErr_Print();
+        fprintf(stderr, "Failed to load \"%s\"\n", "simple_txt2img");
+        return 1;
+    }
+    
+    Py_FinalizeEx();
+    PyMem_RawFree(program);
+}
+
 void update_prompt_text(void* ptr)
 {
     // Load nn
@@ -1169,8 +1269,7 @@ void update_prompt_text(void* ptr)
         exit(1);
     }
     Py_SetProgramName(program);
-    // https://docs.python.org/3/c-api/init.html#c.Py_SetPythonHome
-    wchar_t *home = Py_DecodeLocale("/home/aeri/miniconda3/envs/ldm", NULL); // Hooray!
+    wchar_t *home = Py_DecodeLocale("/home/aeri/miniconda3/envs/ldm", NULL);
     Py_SetPythonHome(home);
 
     PyImport_AppendInittab("flit", &PyInit_flit);
@@ -2130,49 +2229,13 @@ int main(int argc, char const *argv[])
 {
     srand(time(0));
 
-
+    // For now we are gonna run multiple Python embeddings for distinct AI tasks, but if necessary this can be profiled and optimized to route through a single Python embedding
     // Startup speech to text thread
-    pthread_t stt_thread;
-    pthread_create(&stt_thread, NULL, update_prompt_text, (void*)NULL);
-
-    // evolve_layout(NULL);
-
-    // system("python ../python/gen_sd.py");
-
-    // export PATH=/home/aeri/miniconda3/envs/ldm/bin/:$PATH
-    // char* path;
-    // // I changed path to /home/aeri/miniconda3/envs/ldm/bin, I'm not sure if this is required
-    // path = getenv("PATH");
-    // const char* python_env = "/home/aeri/miniconda3/envs/ldm/bin:";
-    // char* update_path = malloc(strlen(python_env) + strlen(path) + 1);
-    // strcat(update_path, python_env);
-    // strcat(update_path, path);
-    // setenv("PATH", update_path, 1);
-    // free(update_path);
-
-    // // Test python
-    // wchar_t *program = Py_DecodeLocale(argv[0], NULL);
-    // if (program == NULL) {
-    //     fprintf(stderr, "Fatal error: cannot decode argv[0]\n");
-    //     exit(1);
-    // }
-    // Py_SetProgramName(program);
-    // // https://docs.python.org/3/c-api/init.html#c.Py_SetPythonHome
-    // wchar_t *home = Py_DecodeLocale("/home/aeri/miniconda3/envs/ldm", NULL); // Hooray!
-    // Py_SetPythonHome(home);
-    // Py_Initialize();
-    // // Add to path any directories with local modules
-    // // PyRun_SimpleString("import sys\nsys.path.append('../deps/stable-diffusion/optimizedSD')"); // \nsys.path.append('/home/aeri/.local/lib/python3.8/site-packages')
-    // PyRun_SimpleString("import os\nimport torch\nprint(torch.__version__)\n");
-    // // FILE *script = fopen("../deps/stable-diffusion/optimizedSD/optimized_txt2img.py", "r");
-    // // PyRun_SimpleFile(script, "optimized_txt2img.py");
-    // FILE *script = fopen("../python/gen_sd.py", "r");
-    // PyRun_SimpleFile(script, "gen_sd.py");
-    // printf("%ls\n", Py_GetProgramFullPath());
-    // if (Py_FinalizeEx() < 0) {
-    //     exit(120);
-    // }
-    // PyMem_RawFree(program);
+    // pthread_t stt_thread;
+    // pthread_create(&stt_thread, NULL, update_prompt_text, (void*)NULL);
+    
+    pthread_t sd_thread;
+    pthread_create(&sd_thread, NULL, stable_diffusion_core, (void*)NULL);
 
     buffer.index = 0;
     buffer.count = 0;
