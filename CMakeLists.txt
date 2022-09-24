@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.0)
 
-# set(CMAKE_BUILD_TYPE Release)
+# set(CMAKE_BUILD_TYPE Debug)
 
-set(CMAKE_SYSTEM_NAME Linux)
-set(CMAKE_PLATFORM Linux)
+# set(CMAKE_SYSTEM_NAME Linux)
+# set(CMAKE_PLATFORM Linux)
 
 set(EDITOR_NAME gui-gal)
 set(SOURCE_PATH "src")

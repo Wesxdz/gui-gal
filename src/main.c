@@ -36,6 +36,9 @@ bool thread_started = false;
 // Mulithreading for speech to text
 pthread_mutex_t mutex_stt = PTHREAD_MUTEX_INITIALIZER;
 
+pthread_mutex_t mutex_stable_diffusion = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_image_loader = PTHREAD_MUTEX_INITIALIZER;
+
 void print_log(GLuint object)
 {
 	GLint log_length = 0;
@@ -718,15 +721,6 @@ void LoadDroppedFiles(ecs_iter_t* it)
     free(drop->paths); // TODO: Move to another system and free unused paths
 }
 
-void LoadPaintedImage(ecs_iter_t* it)
-{
-    EventPaintLoad* paintLoad = ecs_term(it, EventPaintLoad, 1);
-    Anchor place = {0, 0};
-    load_visual_symbol(it->world, paintLoad->filepath, 0.0f, 0.0f, place);
-    free(paintLoad->filepath);
-    ecs_delete(it->world, it->entities[0]);
-}
-
 void drop_callback(GLFWwindow* window, int count, const char** paths)
 {
     ecs_remove(world, input, DragHover);
@@ -1134,9 +1128,54 @@ flit_voice_command(PyObject* self, PyObject* args) // PyObject* params
     return PyLong_FromLong(0);
 }
 
+// Start with something simple that works, then add queue
+static bool should_create_image = false;
+static char* prompt = "";
+
+static PyObject*
+flit_query_stable_diffusion_requests(PyObject* self, PyObject* args) // PyObject* params
+{
+    int locked = pthread_mutex_trylock(&mutex_stable_diffusion);
+    if (locked)
+    {
+        if (should_create_image)
+        {
+            printf("Create image\n");
+            PyObject* prompt_to_gen = PyUnicode_DecodeFSDefault(prompt);
+            prompt = "";
+            should_create_image = false;
+            pthread_mutex_unlock(&mutex_stable_diffusion);
+            return prompt_to_gen;
+        }
+        // Check if there are any requests to generate an image with stable diffusion
+        // If there are, return the highest priority one :)
+        pthread_mutex_unlock(&mutex_stable_diffusion);
+    }
+    return PyLong_FromLong(0);
+}
+
+static bool should_load_image = false;
+static char* image_to_load_filepath = "";
+
+static PyObject*
+flit_load_generated_image(PyObject* self, PyObject* args)
+{
+    char* img_path;
+    PyArg_ParseTuple(args, "s", &img_path);
+    printf("Load image %s\n", img_path);
+    pthread_mutex_lock(&mutex_image_loader);
+    should_load_image = true;
+    image_to_load_filepath = img_path;
+    pthread_mutex_unlock(&mutex_image_loader);
+}
+
 static PyMethodDef FlitMethods[] = {
-    {"voice_command", flit_voice_command, METH_VARARGS, //  | METH_KEYWORDS,
+    {"voice_command", flit_voice_command, METH_VARARGS,
     "Update Flit with voice context"},
+    {"query_stable_diffusion_requests", flit_query_stable_diffusion_requests, METH_VARARGS,
+    "Request Stable Diffusion generation requests from Flit"},
+    {"load_generated_image", flit_load_generated_image, METH_VARARGS,
+    "Request Flit load image at path"},
     {NULL, NULL, 0, NULL}
 };
 
@@ -1150,128 +1189,15 @@ static PyObject* PyInit_flit(void)
     return PyModule_Create(&FlitModule);
 }
 
-void stable_diffusion_core(void* ptr)
+void embed_python(void* ptr)
 {
-
-    // python ../deps/stable-diffusion/optimizedSD/simple_txt2img.py
-    // Why does function work from direct python call but not from C embed?
-
-    // not caused by multithreading
-    // it has to do with environment likely
-
-    // Figure out how to fix the SSL Module not available... :/
-    // self.ConnectionCls is DummyConnection
-    // failed ConnectionCls import
-    // What is ConnectionCLs, how do I import it?
-    // Do I need to link to certificate directory for SSL access?
-    // certs for miniconda are at /home/aeri/miniconda3/ssl/
-
-    // tried pip install --trusted-host pypi.python.org linkchecker
-    // fail
-
-    // try appending all PATH envs related to python...
-    // fail
-
-    // try import ssl
-    // this causes error, promising!
-    // ImportError: /home/aeri/miniconda3/envs/ldm/lib/python3.8/lib-dynload/../../libssl.so.1.1: undefined symbol: EVP_idea_cbc, version OPENSSL_1_1_0
-    // /home/aeri/miniconda3/lib/python3.8/lib-dynload/
-    // I *think* this may be related to compilation flags preventing linking to the .so here...
-    // 1.6 https://docs.python.org/3/extending/embedding.html
-    // Next step is to compile with recommended flags
-    // lto1: fatal error: bytecode stream in file ‘/home/aeri/miniconda3/envs/ldm/lib/python3.8/config-3.8-x86_64-linux-gnu/libpython3.8.a’ generated with LTO version 6.0 instead of the expected 8.1
-    // makefile is 
-    // /home/aeri/miniconda3/envs/ldm/lib/python3.8/config-3.8-x86_64-linux-gnu/
-    // CC=x86_64-conda_cos6-linux-gnu-gcc -pthread
-    // (vs normal python is x86_64-linux-gnu-gcc)
-
-    // If I'm not able to figure this out, I can try to run SD from a local diffuers model
-
-    // Goal is to provide a function to input request details and return image(s) paths
-    // Also need to call a C function from Python to update progress for responsive UI
-    wchar_t *program = Py_DecodeLocale("simple_txt2img", NULL);
-    if (program == NULL) {
-        fprintf(stderr, "Fatal error: cannot decode argv[0]\n");
-        exit(1);
-    }
-    Py_SetProgramName(program);
-    // https://docs.python.org/3/c-api/init.html#c.Py_SetPythonHome
-    wchar_t *home = Py_DecodeLocale("/home/aeri/miniconda3/envs/ldm", NULL); // Hooray!
-    Py_SetPythonHome(home);
-    Py_Initialize();
-    // Add to path any directories with local modules
-    PyRun_SimpleString("import sys\nsys.path.append('../deps/stable-diffusion/optimizedSD')\nsys.path.append('/home/aeri/miniconda3/envs/ldm/lib/python3.8')"); //\nsys.path.append('/home/aeri/.local/lib/python3.8/site-packages')\n // sys.path.append('/home/aeri/miniconda3/envs/ldm/bin')\nsys.path.append('/home/aeri/miniconda3/envs/ldm/bin')\nsys.path.append('/home/aeri/miniconda3/bin')\nsys.path.append('/home/aeri/.local/bin')\nsys.path.append('/home/aeri/miniconda3/condabin')
-    
-    // FILE *script = fopen("../deps/stable-diffusion/optimizedSD/simple_txt2img.py", "r");
-    // PyRun_SimpleFile(script, "simple_txt2img");
-
     PyObject *pName, *pModule, *pFunc;
     PyObject *pArgs, *pValue;
-    
-    pName = PyUnicode_DecodeFSDefault("simple_txt2img");
-    pModule = PyImport_Import(pName);
-    Py_DECREF(pName);
-
-    if (pModule != NULL) {
-        pFunc = PyObject_GetAttrString(pModule, "simple");
-        /* pFunc is a new reference */
-
-        if (pFunc && PyCallable_Check(pFunc)) {
-            pArgs = PyTuple_New(0);
-            pValue = PyObject_CallObject(pFunc, pArgs);
-            Py_DECREF(pArgs);
-            if (pValue != NULL) {
-                printf("Result of call: %s\n", PyUnicode_AsUTF8(pValue));
-                Py_DECREF(pValue);
-            }
-            else {
-                Py_DECREF(pFunc);
-                Py_DECREF(pModule);
-                PyErr_Print();
-                fprintf(stderr,"Call failed\n");
-                return 1;
-            }
-        }
-        else {
-            if (PyErr_Occurred())
-                PyErr_Print();
-            fprintf(stderr, "Cannot find function \"%s\"\n", "simple");
-        }
-        Py_XDECREF(pFunc);
-        Py_DECREF(pModule);
-    }
-    else {
-        PyErr_Print();
-        fprintf(stderr, "Failed to load \"%s\"\n", "simple_txt2img");
-        return 1;
-    }
-    
-    Py_FinalizeEx();
-    PyMem_RawFree(program);
-}
-
-void update_prompt_text(void* ptr)
-{
-    // Load nn
-    // Start recording stream
-    // Continually call function to get updates to block queue
-    // If there is an update, call an event in the ECS to match with PaintFrame
-    // Set prompt :)
-
-    PyObject *pName, *pModule, *pFunc;
-    PyObject *pArgs, *pValue;
-    int i;
-
-    printf("Loading speech recognition systems...\n");
+    // printf("Loading speech recognition systems...\n");
     wchar_t *program = Py_DecodeLocale("rtsr", NULL);
-    if (program == NULL) {
-        fprintf(stderr, "Fatal error: cannot decode argv[0]\n");
-        exit(1);
-    }
     Py_SetProgramName(program);
     wchar_t *home = Py_DecodeLocale("/home/aeri/miniconda3/envs/ldm", NULL);
     Py_SetPythonHome(home);
-
     PyImport_AppendInittab("flit", &PyInit_flit);
     Py_Initialize();
     PyRun_SimpleString("import sys\nsys.path.append('../python/')");
@@ -1284,17 +1210,6 @@ void update_prompt_text(void* ptr)
     if (Py_FinalizeEx() < 0) {
         return 120;
     }
-}
-
-void generate_image(void* ptr)
-{
-    pthread_mutex_lock(&mutex1);
-    // printf("Thread locked by generator\n");
-    thread_started = true;
-    system((char*)ptr);
-    free(ptr);
-    pthread_mutex_unlock(&mutex1);
-    // printf("Thread unlocked by generator!\n");
 }
 
 void image_gen_completed(ecs_iter_t* it, void* data)
@@ -1364,45 +1279,58 @@ void BackspacePaintPrompt(ecs_iter_t* it)
     printf("Key is %i. Action is %i\n",key->scancode, key->action);
     if (key->key == GLFW_KEY_ENTER && key->action == GLFW_PRESS)
     {
-        pthread_t thread;
-        const char* txt2img = "python ../deps/stable-diffusion/optimizedSD/optimized_txt2img.py --outdir . --prompt ";
-        const char* img2img = "python ../deps/stable-diffusion/optimizedSD/optimized_img2img.py --outdir . --init-img test_save.jpg --prompt ";
-        const char* inpaint = "python ../deps/stable-diffusion/optimizedSD/inpaint_sd.py --init_image test_save.jpg --mask_image test_save_mask.jpg --prompt ";
-        char* command;
-        if (paint->interaction_mode == 0)
-        {
-            command = txt2img;
-        } else if (paint->interaction_mode == 1)
-        {
-            command = img2img;
-        } 
-        else if (paint->interaction_mode == 2)
-        {
-            command = inpaint;
-        }
-        char* invoke_sd = malloc(strlen(command) + 256);
-        const char* quotationLiteral = "\"";
-        const char* space = " ";
-        strcpy(invoke_sd, command);
-        printf("%s\n", invoke_sd);
-        strcat(invoke_sd, quotationLiteral);
-        strcat(invoke_sd, paint->prompt);
-        strcat(invoke_sd, quotationLiteral);
-        strcat(invoke_sd, space);
-        strcat(invoke_sd, "--seed ");
-        int random_seed = random();
-        int len = snprintf(NULL, 0, "%d", random_seed);
-        char* seed_str = malloc(len+1);
-        snprintf(seed_str, len+1, "%d", random_seed);
-        strcat(invoke_sd, seed_str);
-        free(seed_str);
-        printf("%s\n", invoke_sd);
-        int thread_id = pthread_create(&thread, NULL, generate_image, (void*)invoke_sd);
-        ecs_entity_t image_gen_task = ecs_new_id(it->world);
-        PromptCallbackData* data = malloc(sizeof(PromptCallbackData));
-        data->prompt = &paint->prompt;
-        data->seed = random_seed;
-        ecs_set(it->world, image_gen_task, WaitThreadComplete, {&mutex1, thread_id, &thread_started, &image_gen_completed, (void*)data});
+        // TODO: Wait?
+        pthread_mutex_lock(&mutex_stable_diffusion);
+        printf("Start create image!");
+        prompt = paint->prompt;
+        should_create_image = true;
+        pthread_mutex_unlock(&mutex_stable_diffusion);
+        // if (locked)
+        // {
+        //     // Check if there are any requests to generate an image with stable diffusion
+        //     // If there are, return the highest priority one :)
+        //     
+        // }
+
+        // pthread_t thread;
+        // const char* txt2img = "python ../deps/stable-diffusion/optimizedSD/optimized_txt2img.py --outdir . --prompt ";
+        // const char* img2img = "python ../deps/stable-diffusion/optimizedSD/optimized_img2img.py --outdir . --init-img test_save.jpg --prompt ";
+        // const char* inpaint = "python ../deps/stable-diffusion/optimizedSD/inpaint_sd.py --init_image test_save.jpg --mask_image test_save_mask.jpg --prompt ";
+        // char* command;
+        // if (paint->interaction_mode == 0)
+        // {
+        //     command = txt2img;
+        // } else if (paint->interaction_mode == 1)
+        // {
+        //     command = img2img;
+        // } 
+        // else if (paint->interaction_mode == 2)
+        // {
+        //     command = inpaint;
+        // }
+        // char* invoke_sd = malloc(strlen(command) + 256);
+        // const char* quotationLiteral = "\"";
+        // const char* space = " ";
+        // strcpy(invoke_sd, command);
+        // printf("%s\n", invoke_sd);
+        // strcat(invoke_sd, quotationLiteral);
+        // strcat(invoke_sd, paint->prompt);
+        // strcat(invoke_sd, quotationLiteral);
+        // strcat(invoke_sd, space);
+        // strcat(invoke_sd, "--seed ");
+        // int random_seed = random();
+        // int len = snprintf(NULL, 0, "%d", random_seed);
+        // char* seed_str = malloc(len+1);
+        // snprintf(seed_str, len+1, "%d", random_seed);
+        // strcat(invoke_sd, seed_str);
+        // free(seed_str);
+        // printf("%s\n", invoke_sd);
+        // int thread_id = pthread_create(&thread, NULL, generate_image, (void*)invoke_sd);
+        // ecs_entity_t image_gen_task = ecs_new_id(it->world);
+        // PromptCallbackData* data = malloc(sizeof(PromptCallbackData));
+        // data->prompt = &paint->prompt;
+        // data->seed = random_seed;
+        // ecs_set(it->world, image_gen_task, WaitThreadComplete, {&mutex1, thread_id, &thread_started, &image_gen_completed, (void*)data});
     }
 }
 
@@ -1449,6 +1377,24 @@ void UpdateCursorAction(ecs_iter_t* it)
             glfwSetCursor(window, cursor);
             ecs_set(it->world, input, ActionOnMouseInput, {false, indicator->symbol, indicator[i].op, {transform[i].pos[0], transform[i].pos[1]}, {texture->scale[0], texture->scale[1]}});
         }
+    }
+}
+
+void LoadPaintedImage(ecs_iter_t* it)
+{
+    // EventPaintLoad* paintLoad = ecs_term(it, EventPaintLoad, 1);
+    int locked = pthread_mutex_trylock(&mutex_image_loader);
+    if (locked)
+    {
+        if (should_load_image)
+        {
+            Anchor place = {0, 0};
+            load_visual_symbol(it->world, image_to_load_filepath, 0.0f, 0.0f, place);
+            // free(paintLoad->filepath);
+            // ecs_delete(it->world, it->entities[0]);
+            should_load_image = false;
+        }
+        pthread_mutex_unlock(&mutex_image_loader);
     }
 }
 
@@ -2229,13 +2175,9 @@ int main(int argc, char const *argv[])
 {
     srand(time(0));
 
-    // For now we are gonna run multiple Python embeddings for distinct AI tasks, but if necessary this can be profiled and optimized to route through a single Python embedding
-    // Startup speech to text thread
-    // pthread_t stt_thread;
-    // pthread_create(&stt_thread, NULL, update_prompt_text, (void*)NULL);
-    
-    pthread_t sd_thread;
-    pthread_create(&sd_thread, NULL, stable_diffusion_core, (void*)NULL);
+    // Embed Python
+    pthread_t python_thread;
+    pthread_create(&python_thread, NULL, embed_python, (void*)NULL);
 
     buffer.index = 0;
     buffer.count = 0;
@@ -2282,7 +2224,6 @@ int main(int argc, char const *argv[])
     ecs_set(world, AI_painter, Transform2D, {0.0f, 0.0f});
     ecs_set(world, AI_painter, PaintFrame, {512.0f, 512.0f, 0, ""});
 
-    ECS_OBSERVER(world, LoadPaintedImage, EcsOnSet, EventPaintLoad);
     ECS_OBSERVER(world, SetupBatchRenderer, EcsOnSet, BatchSpriteRenderer);
     ECS_OBSERVER(world, SetupCamera, EcsOnSet, Camera);
     ECS_OBSERVER(world, SetInitialMultitexture, EcsOnSet, Texture2D, MultiTexture2D);
@@ -2343,7 +2284,7 @@ int main(int argc, char const *argv[])
     // }
 
     ECS_SYSTEM(world, SavePaintFrameInput, EcsPreFrame, Transform2D, Texture2D, Camera(renderer), PaintFrame(AI_painter), EventSavePaintIntersection(AI_painter), Transform2D(AI_painter), [inout] *());
-
+    ECS_SYSTEM(world, LoadPaintedImage, EcsPreFrame, [inout]*());
     ECS_SYSTEM(world, IndicateSavePaint, EcsPreFrame, PaintFrame, EventKey(input));
     ECS_SYSTEM(world, CheckThreadComplete, EcsPreFrame, WaitThreadComplete, [inout] *());
     ECS_SYSTEM(world, ResetCursor, EcsPreFrame, EventMouseMotion);
