@@ -1167,6 +1167,7 @@ flit_load_generated_image(PyObject* self, PyObject* args)
     should_load_image = true;
     image_to_load_filepath = img_path;
     pthread_mutex_unlock(&mutex_image_loader);
+    return PyLong_FromLong(0);
 }
 
 static PyMethodDef FlitMethods[] = {
@@ -1232,13 +1233,13 @@ void image_gen_completed(ecs_iter_t* it, void* data)
 void UpdatePromptFromSpeech(ecs_iter_t* it)
 {
     PaintFrame* paint = ecs_term(it, PaintFrame, 1);
-    int locked = pthread_mutex_trylock(&mutex_stt);
-    if (!locked)
-    {
-        // TODO: Only append new speech to allow text editing
-        strcpy(paint[0].prompt, speech);
-        pthread_mutex_unlock(&mutex_stt);
-    }
+    // int locked = pthread_mutex_trylock(&mutex_stt);
+    // if (!locked)
+    // {
+    //     // TODO: Only append new speech to allow text editing
+    //     strcpy(paint[0].prompt, speech);
+    //     pthread_mutex_unlock(&mutex_stt);
+    // }
 }
 
 void CheckThreadComplete(ecs_iter_t* it)

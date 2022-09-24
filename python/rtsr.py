@@ -9,6 +9,9 @@ import queue
 import socket
 import threading
 import queue
+import faulthandler
+
+faulthandler.enable()
 
 fs = 16000 # Whisper sample rate
 bindex = 0
