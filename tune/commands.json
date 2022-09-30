@@ -1,0 +1,10 @@
+{"prompt": "Create a carrot", "completion":"gen_image(\"carrot\", 1)"}
+{"prompt": "Show me some flowers", "completion":"gen_image(\"flowers\", 3)"}
+{"prompt": "Generate a bookstore", "completion":"gen_image(\"bookstore\", 1)"}
+// {"prompt": "Make it blue (bookstore)", "completion":"gen_variant(\"blue bookstore\", 1)"}
+// {"prompt": "Nevermind, make it red (blue bookstore)", "completion":"gen_variant(\"red bookstore\", 1)"}
+// {"prompt": "Make it more red (red bookstore)", "completion":"gen_variant(\"[red:3.0] bookstore\", 1)"}
+{"prompt": "I like her hair (a girl with wavy blue hair)", "completion": "learn_masked_preference(0.5, \"hair\")"}
+{"prompt": "I like the sky", "completion": "learn_masked_preference(0.5, \"sky\")"}
+// {"prompt": "I don't like this", "completion":"learn_preference(-0.5)"}
+// {"prompt": "I hate this", "completion":"learn_preference(-1.0)"}

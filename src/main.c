@@ -38,6 +38,7 @@ pthread_mutex_t mutex_stt = PTHREAD_MUTEX_INITIALIZER;
 
 pthread_mutex_t mutex_stable_diffusion = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_image_loader = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_clipseg_mask = PTHREAD_MUTEX_INITIALIZER;
 
 void print_log(GLuint object)
 {
@@ -236,6 +237,7 @@ void RenderSprites(ecs_iter_t* it)
     BatchSpriteRenderer* renderer = ecs_term(it, BatchSpriteRenderer, 2);
     Transform2D* transform = ecs_term(it, Transform2D, 3);
     Texture2D* texture = ecs_term(it, Texture2D, 4);
+    TextureView* tv = ecs_term(it, TextureView, 5);
     // printf("Use shader %d\n", renderer->shader.programId);
     glUseProgram(renderer->shader.programId);
     glUniformMatrix4fv(glGetUniformLocation(renderer->shader.programId, "view"), 1, false, camera->view[0]);
@@ -256,8 +258,18 @@ void RenderSprites(ecs_iter_t* it)
         vec3 scale = {texture[i].pow_w / texture[i].scale[0], texture[i].pow_h / texture[i].scale[1], 1.0};
         glm_scale(model, scale);
         glUniformMatrix4fv(glGetUniformLocation(renderer->shader.programId, "model"), 1, false, model[0]);
-        // vec4 box = {10.0, 0.0, texture->surface->w, texture->surface->h};
-        // glUniform4f(glGetUniformLocation(renderer->shader.programId, "box"), 100, 40, 1, 1);
+        if (tv)
+        {
+            float x_ratio = (float)texture[i].width/texture[i].pow_w;
+            float y_ratio = (float)texture[i].height/texture[i].pow_h;
+            // printf("Y bounds are %f, %f\n", tv[i].bounds.min.y, tv[i].bounds.max.y);
+            // printf("Y is %f to %f\n", (tv[i].bounds.min.y/texture[i].height)*y_ratio, (tv[i].bounds.max.y/texture[i].height)*y_ratio);
+            glUniform4f(glGetUniformLocation(renderer->shader.programId, "subimage"), (tv[i].bounds.min.x/texture[i].width)*x_ratio, (tv[i].bounds.min.y/texture[i].height)*y_ratio, (tv[i].bounds.max.x/texture[i].width)*x_ratio, (tv[i].bounds.max.y/texture[i].height)*y_ratio);
+            // glUniform4f(glGetUniformLocation(renderer->shader.programId, "subimage"), 0.0, 0.0, 0.5 * x_ratio, 0.5 * y_ratio);
+        } else
+        {
+            glUniform4f(glGetUniformLocation(renderer->shader.programId, "subimage"), 0.0, 0.0, 1.0, 1.0);
+        }
         glUniform2f(glGetUniformLocation(renderer->shader.programId, "scale"), 1.0, 1.0);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, texture[i].id);
@@ -920,6 +932,7 @@ void RenderDragSelector(ecs_iter_t* it)
 {
     NanoVG* nano = ecs_term(it, NanoVG, 1);
     DragSelector* selector = ecs_term(it, DragSelector, 2);
+    InteractionState* interaction = ecs_term(it, InteractionState, 3);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_CULL_FACE);
@@ -930,13 +943,27 @@ void RenderDragSelector(ecs_iter_t* it)
     nvgRect(nano->vg, selector->x, selector->y, 1, selector->h);
     nvgRect(nano->vg, selector->x, selector->y + selector->h, selector->w, 1);
     nvgRect(nano->vg, selector->x + selector->w, selector->y, 1, selector->h);
-    nvgFillColor(nano->vg, nvgRGBA(34, 224, 107, 255));
+    if (interaction->mode == STANDARD)
+    {
+        nvgFillColor(nano->vg, nvgRGBA(34, 224, 107, 255));
+    } 
+    else if (interaction->mode == CROP)
+    {
+        nvgFillColor(nano->vg, nvgRGBA(255, 100, 107, 255));
+    }
     nvgFill(nano->vg);
     nvgClosePath(nano->vg);
 
     nvgBeginPath(nano->vg);
     nvgRect(nano->vg, selector->x, selector->y, selector->w, selector->h);
-    nvgFillColor(nano->vg, nvgRGBA(34, 224, 107, 4));
+    if (interaction->mode == STANDARD)
+    {
+        nvgFillColor(nano->vg, nvgRGBA(34, 224, 107, 8));
+    } 
+    else if (interaction->mode == CROP)
+    {
+        nvgFillColor(nano->vg, nvgRGBA(255, 100, 107, 8));
+    }
     nvgFill(nano->vg);
     nvgClosePath(nano->vg);
     // glEnable(GL_DEPTH_TEST);
@@ -1036,7 +1063,7 @@ void MouseStartAction(ecs_iter_t* it)
 
     if (event->action == GLFW_PRESS && event->button == GLFW_MOUSE_BUTTON_LEFT)
     {
-        printf("Mouse start\n");
+        // printf("Mouse start\n");
         action->active = true;
     }
 }
@@ -1048,6 +1075,7 @@ void MouseAffectAction(ecs_iter_t* it)
     Camera* camera = ecs_term(it, Camera, 3);
     Transform2D* transform = ecs_term(it, Transform2D, 4);
     Texture2D* texture = ecs_term(it, Texture2D, 5);
+    TextureView* tv = ecs_term(it, TextureView, 6);
 
     for (int32_t i = 0; i < it->count; i++)
     {
@@ -1056,52 +1084,116 @@ void MouseAffectAction(ecs_iter_t* it)
             vec2 cursorWorldPos;
             screen_to_world(camera->view, event->pos, cursorWorldPos);
             vec2 diff;
-
-            if (action->op == SCALE_LOWER_RIGHT)
+            // printf("Action origin is (%f, %f)\n", action->origin[0], action->origin[1]);
+    
+            if (ecs_term_is_set(it, 6))
             {
-                glm_vec2_sub(cursorWorldPos, transform[i].pos, diff);
-                vec2 ratio = {diff[0]/texture[i].width, diff[1]/texture[i].height};
-
-                float greater = c2Max(1.0/ratio[0], 1.0/ratio[1]);
-                texture[i].scale[0] = greater;
-                texture[i].scale[1] = greater;
-            }
-            else if (action->op == SCALE_LOWER_LEFT)
+                float cropped_width = (tv[i].bounds.max.x - tv[i].bounds.min.x);
+                float cropped_height = (tv[i].bounds.max.y - tv[i].bounds.min.y);
+                float start_x = transform[i].pos[0] + tv[i].bounds.min.x/action->startScale[0];
+                float start_y = transform[i].pos[1] + tv[i].bounds.min.y/action->startScale[1];
+                vec2 startPos = {start_x, start_y};
+                if (action->op == SCALE_LOWER_RIGHT)
+                {
+                    vec2 upperLeft;
+                    upperLeft[0] = action->origin[0] - cropped_width/action->startScale[0];
+                    upperLeft[1] = action->origin[1] - cropped_height/action->startScale[1];
+                    glm_vec2_sub(cursorWorldPos, upperLeft, diff);
+                    printf("Diff is (%f, %f)\n", diff[0], diff[1]);
+                    vec2 ratio = {diff[0]/cropped_width, diff[1]/cropped_height};
+                    float greater = c2Max(1.0/ratio[0], 1.0/ratio[1]);
+                    texture[i].scale[0] = greater;
+                    texture[i].scale[1] = greater;
+                    transform[i].pos[0] = upperLeft[0] - tv[i].bounds.min.x/greater;
+                    transform[i].pos[1] = upperLeft[1] - tv[i].bounds.min.y/greater;
+                }
+                else if (action->op == SCALE_LOWER_LEFT)
+                {
+                    vec2 upperRight;
+                    upperRight[0] = action->origin[0] + cropped_width/action->startScale[0];
+                    upperRight[1] = action->origin[1] - cropped_height/action->startScale[1];
+                    glm_vec2_sub(cursorWorldPos, upperRight, diff);
+                    vec2 ratio = {diff[0]/-cropped_width, diff[1]/cropped_height};
+                    float greater = c2Max(1.0/ratio[0], 1.0/ratio[1]);
+                    texture[i].scale[0] = greater;
+                    texture[i].scale[1] = greater;
+                    transform[i].pos[0] = upperRight[0] - tv[i].bounds.max.x/greater;
+                    transform[i].pos[1] = upperRight[1] - tv[i].bounds.min.y/greater;
+                }
+                else if (action->op == SCALE_UPPER_RIGHT)
+                {
+                    vec2 lowerLeft;
+                    lowerLeft[0] = action->origin[0] - cropped_width/action->startScale[0];
+                    lowerLeft[1] = action->origin[1] + cropped_height/action->startScale[1];
+                    glm_vec2_sub(cursorWorldPos, lowerLeft, diff);
+                    vec2 ratio = {diff[0]/-cropped_width, diff[1]/-cropped_height};
+                    float greater = c2Max(1.0/ratio[0], 1.0/ratio[1]);
+                    texture[i].scale[0] = greater;
+                    texture[i].scale[1] = greater;
+                    transform[i].pos[0] = lowerLeft[0] - tv[i].bounds.min.x/greater;
+                    transform[i].pos[1] = lowerLeft[1] - tv[i].bounds.max.y/greater;
+                }
+                else if (action->op == SCALE_UPPER_LEFT)
+                {
+                    vec2 lowerRight;
+                    lowerRight[0] = action->origin[0] + cropped_width/action->startScale[0];
+                    lowerRight[1] = action->origin[1] + cropped_height/action->startScale[1];
+                    glm_vec2_sub(cursorWorldPos, lowerRight, diff);
+                    vec2 ratio = {diff[0]/cropped_width, diff[1]/-cropped_height};
+                    float greater = c2Max(1.0/ratio[0], 1.0/ratio[1]);
+                    texture[i].scale[0] = greater;
+                    texture[i].scale[1] = greater;
+                    transform[i].pos[0] = lowerRight[0] - tv[i].bounds.max.x/greater;
+                    transform[i].pos[1] = lowerRight[1] - tv[i].bounds.max.y/greater;
+                }
+            } else
             {
-                vec2 opposite = {action->origin[0] + texture[i].width/action->startScale[0], action->origin[1]};
-                diff[0] = cursorWorldPos[0] - (opposite[0]);
-                diff[1] = cursorWorldPos[1] - transform[i].pos[1];
-                vec2 ratio = {diff[0]/texture[i].width, diff[1]/texture[i].height};
+                if (action->op == SCALE_LOWER_RIGHT)
+                {
+                    glm_vec2_sub(cursorWorldPos, transform[i].pos, diff);
+                    vec2 ratio = {diff[0]/texture[i].width, diff[1]/texture[i].height};
 
-                float greater = c2Max(-1.0/ratio[0], 1.0/ratio[1]);
-                texture[i].scale[0] = greater;
-                texture[i].scale[1] = greater;
-                transform[i].pos[0] = opposite[0] - texture[i].width/greater;
-            }
-            else if (action->op == SCALE_UPPER_RIGHT)
-            {
-                vec2 opposite = {action->origin[0], action->origin[1] + texture[i].height/action->startScale[1]};
-                diff[0] = cursorWorldPos[0] - transform[i].pos[0];
-                diff[1] = cursorWorldPos[1] - opposite[1];
-                vec2 ratio = {diff[0]/texture[i].width, diff[1]/texture[i].height};
+                    float greater = c2Max(1.0/ratio[0], 1.0/ratio[1]);
+                    texture[i].scale[0] = greater;
+                    texture[i].scale[1] = greater;
+                }
+                else if (action->op == SCALE_LOWER_LEFT)
+                {
+                    vec2 opposite = {action->origin[0] + texture[i].width/action->startScale[0], action->origin[1]};
+                    diff[0] = cursorWorldPos[0] - (opposite[0]);
+                    diff[1] = cursorWorldPos[1] - transform[i].pos[1];
+                    vec2 ratio = {diff[0]/texture[i].width, diff[1]/texture[i].height};
 
-                float greater = c2Max(1.0/ratio[0], 1.0/ratio[1]);
-                texture[i].scale[0] = greater;
-                texture[i].scale[1] = greater;
-                transform[i].pos[1] = opposite[1] - texture[i].height/greater;
-            }
-            else if (action->op == SCALE_UPPER_LEFT)
-            {
-                vec2 opposite = {action->origin[0] + texture[i].width/action->startScale[0], action->origin[1] + texture[i].height/action->startScale[1]};
-                diff[0] = cursorWorldPos[0] - opposite[0];
-                diff[1] = cursorWorldPos[1] - opposite[1];
-                vec2 ratio = {-diff[0]/texture[i].width, -diff[1]/texture[i].height};
+                    float greater = c2Max(-1.0/ratio[0], 1.0/ratio[1]);
+                    texture[i].scale[0] = greater;
+                    texture[i].scale[1] = greater;
+                    transform[i].pos[0] = opposite[0] - texture[i].width/greater;
+                }
+                else if (action->op == SCALE_UPPER_RIGHT)
+                {
+                    vec2 opposite = {action->origin[0], action->origin[1] + texture[i].height/action->startScale[1]};
+                    diff[0] = cursorWorldPos[0] - transform[i].pos[0];
+                    diff[1] = cursorWorldPos[1] - opposite[1];
+                    vec2 ratio = {diff[0]/texture[i].width, diff[1]/texture[i].height};
 
-                float greater = c2Max(1.0/ratio[0], 1.0/ratio[1]);
-                texture[i].scale[0] = greater;
-                texture[i].scale[1] = greater;
-                transform[i].pos[0] = opposite[0] - texture[i].width/greater;
-                transform[i].pos[1] = opposite[1] - texture[i].height/greater;
+                    float greater = c2Max(1.0/ratio[0], 1.0/ratio[1]);
+                    texture[i].scale[0] = greater;
+                    texture[i].scale[1] = greater;
+                    transform[i].pos[1] = opposite[1] - texture[i].height/greater;
+                }
+                else if (action->op == SCALE_UPPER_LEFT)
+                {
+                    vec2 opposite = {action->origin[0] + texture[i].width/action->startScale[0], action->origin[1] + texture[i].height/action->startScale[1]};
+                    diff[0] = cursorWorldPos[0] - opposite[0];
+                    diff[1] = cursorWorldPos[1] - opposite[1];
+                    vec2 ratio = {-diff[0]/texture[i].width, -diff[1]/texture[i].height};
+
+                    float greater = c2Max(1.0/ratio[0], 1.0/ratio[1]);
+                    texture[i].scale[0] = greater;
+                    texture[i].scale[1] = greater;
+                    transform[i].pos[0] = opposite[0] - texture[i].width/greater;
+                    transform[i].pos[1] = opposite[1] - texture[i].height/greater;
+                }
             }
         }
     }
@@ -1154,6 +1246,34 @@ flit_query_stable_diffusion_requests(PyObject* self, PyObject* args) // PyObject
     return PyLong_FromLong(0);
 }
 
+// Start with something simple that works, then add queue
+// static bool should_mask_image = false;
+// static char* mask_prompt = "";
+
+// static PyObject*
+// flit_query_clipseg_mask(PyObject* self, PyObject* args) // PyObject* params
+// {
+//     int locked = pthread_mutex_trylock(&mutex_clipseg_mask);
+//     if (locked)
+//     {
+//         if (should_mask_image)
+//         {
+//             printf("Create image\n");
+//             PyObject* prompt_to_gen = PyUnicode_DecodeFSDefault(mask_prompt);
+//             mask_prompt = "";
+//             // TODO: Need to get the current image context (last image generated or image selected)
+//             should_create_image = false;
+//             pthread_mutex_unlock(&mutex_clipseg_mask);
+//             return prompt_to_gen;
+//         }
+//         // Check if there are any requests to generate an image with stable diffusion
+//         // If there are, return the highest priority one :)
+//         pthread_mutex_unlock(&mutex_stable_diffusion);
+//     }
+//     return PyLong_FromLong(0);
+// }
+
+
 static bool should_load_image = false;
 static char* image_to_load_filepath = "";
 
@@ -1204,7 +1324,6 @@ void embed_python(void* ptr)
     PyRun_SimpleString("import sys\nsys.path.append('../python/')");
     pName = PyUnicode_DecodeFSDefault("rtsr"); // argv[1]
     /* Error checking of pName left out */
-
     pModule = PyImport_Import(pName);
     Py_DECREF(pName);
     Py_DECREF(pModule);
@@ -1280,58 +1399,11 @@ void BackspacePaintPrompt(ecs_iter_t* it)
     printf("Key is %i. Action is %i\n",key->scancode, key->action);
     if (key->key == GLFW_KEY_ENTER && key->action == GLFW_PRESS)
     {
-        // TODO: Wait?
         pthread_mutex_lock(&mutex_stable_diffusion);
         printf("Start create image!");
         prompt = paint->prompt;
         should_create_image = true;
         pthread_mutex_unlock(&mutex_stable_diffusion);
-        // if (locked)
-        // {
-        //     // Check if there are any requests to generate an image with stable diffusion
-        //     // If there are, return the highest priority one :)
-        //     
-        // }
-
-        // pthread_t thread;
-        // const char* txt2img = "python ../deps/stable-diffusion/optimizedSD/optimized_txt2img.py --outdir . --prompt ";
-        // const char* img2img = "python ../deps/stable-diffusion/optimizedSD/optimized_img2img.py --outdir . --init-img test_save.jpg --prompt ";
-        // const char* inpaint = "python ../deps/stable-diffusion/optimizedSD/inpaint_sd.py --init_image test_save.jpg --mask_image test_save_mask.jpg --prompt ";
-        // char* command;
-        // if (paint->interaction_mode == 0)
-        // {
-        //     command = txt2img;
-        // } else if (paint->interaction_mode == 1)
-        // {
-        //     command = img2img;
-        // } 
-        // else if (paint->interaction_mode == 2)
-        // {
-        //     command = inpaint;
-        // }
-        // char* invoke_sd = malloc(strlen(command) + 256);
-        // const char* quotationLiteral = "\"";
-        // const char* space = " ";
-        // strcpy(invoke_sd, command);
-        // printf("%s\n", invoke_sd);
-        // strcat(invoke_sd, quotationLiteral);
-        // strcat(invoke_sd, paint->prompt);
-        // strcat(invoke_sd, quotationLiteral);
-        // strcat(invoke_sd, space);
-        // strcat(invoke_sd, "--seed ");
-        // int random_seed = random();
-        // int len = snprintf(NULL, 0, "%d", random_seed);
-        // char* seed_str = malloc(len+1);
-        // snprintf(seed_str, len+1, "%d", random_seed);
-        // strcat(invoke_sd, seed_str);
-        // free(seed_str);
-        // printf("%s\n", invoke_sd);
-        // int thread_id = pthread_create(&thread, NULL, generate_image, (void*)invoke_sd);
-        // ecs_entity_t image_gen_task = ecs_new_id(it->world);
-        // PromptCallbackData* data = malloc(sizeof(PromptCallbackData));
-        // data->prompt = &paint->prompt;
-        // data->seed = random_seed;
-        // ecs_set(it->world, image_gen_task, WaitThreadComplete, {&mutex1, thread_id, &thread_started, &image_gen_completed, (void*)data});
     }
 }
 
@@ -1345,6 +1417,24 @@ void MouseEndAction(ecs_iter_t* it)
     {
         printf("Mouse end\n");
         ecs_remove(it->world, input, ActionOnMouseInput);
+    }
+}
+
+void ChangeInteractionOnKeyPress(ecs_iter_t* it)
+{
+    EventKey* event = ecs_term(it, EventKey, 1);
+    InteractionState* interaction = ecs_term(it, InteractionState, 2);
+
+    if (event->key == GLFW_KEY_C)
+    {
+        if (event->action == GLFW_PRESS)
+        {
+            interaction->mode = CROP;
+        } 
+        else if (event->action == GLFW_RELEASE)
+        {
+            interaction->mode = STANDARD;
+        }
     }
 }
 
@@ -1475,8 +1565,8 @@ void AnchorPropagate(ecs_iter_t* it)
 {
     Transform2D* parent = ecs_term(it, Transform2D, 1);
     Texture2D* texture = ecs_term(it, Texture2D, 2);
-    Transform2D* transform = ecs_term(it, Transform2D, 3);
-    Anchor* anchor = ecs_term(it, Anchor, 4);
+    Transform2D* transform = ecs_term(it, Transform2D, 4);
+    Anchor* anchor = ecs_term(it, Anchor, 5);
 
     if (parent)
     {
@@ -1487,6 +1577,25 @@ void AnchorPropagate(ecs_iter_t* it)
             transform[i].pos[1] = parent->pos[1] + anchor[i].vertical * texture->height / texture->scale[1];
         }
     }
+}
+
+void AnchorPropagatePartial(ecs_iter_t* it)
+{
+    Transform2D* parent = ecs_term(it, Transform2D, 1);
+    Texture2D* texture = ecs_term(it, Texture2D, 2);
+    TextureView* tv = ecs_term(it, TextureView, 3);
+    Transform2D* transform = ecs_term(it, Transform2D, 4);
+    Anchor* anchor = ecs_term(it, Anchor, 5);
+
+    if (parent)
+    {
+        // printf("Let's go %d!\n", it->count);
+        for (int32_t i = 0; i < it->count; i++)
+        {
+            transform[i].pos[0] = parent->pos[0] + tv->bounds.min.x/texture->scale[0] + anchor[i].horizontal * (tv->bounds.max.x - tv->bounds.min.x) / texture->scale[0];
+            transform[i].pos[1] = parent->pos[1] + tv->bounds.min.y/texture->scale[1] + anchor[i].vertical * (tv->bounds.max.y - tv->bounds.min.y) / texture->scale[1];
+        }
+    }   
 }
 
 void TransformCascadeHierarchy(ecs_iter_t* it)
@@ -1619,7 +1728,7 @@ void SavePaintFrameInput(ecs_iter_t* it)
     for (int32_t i = 0; i < it->count; i++)
     {
         c2AABB texBounds = {{transform[i].pos[0], transform[i].pos[1]}, {transform[i].pos[0] + texture[i].width, transform[i].pos[1] + texture[i].height}};
-        // Determine if the texture overlaps with the paint frame (don't consider scale or rotation yet)
+        // Determine if the texture  s with the paint frame (don't consider scale or rotation yet)
         if (c2AABBtoAABB(frameBounds, texBounds))
         {
             // What rect of frame is the texture in
@@ -1654,8 +1763,9 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
     // printf("Select visual symbol\n");
     Camera* camera = ecs_term(it, Camera, 1);
     EventMouseButton* event = ecs_term(it, EventMouseButton, 2);
-    // ActionOnMouseInput* mouseInputAction = ecs_term(it, ActionOnMouseInput, 3);
-    printf("Select query\n");
+    InteractionState* interaction = ecs_term(it, InteractionState, 3);
+    // ActionOnMouseInput* mouseInputAction = ecs_term(it, ActionOnMouseInput, 4);
+
     DragSelector* selector = NULL;
     if (ecs_has(it->world, input, DragSelector))
     {
@@ -1698,12 +1808,26 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
                     vec2 minPos = {c2Min(selectorStart[0], selectorEnd[0]), c2Min(selectorStart[1], selectorEnd[1])};
                     vec2 maxPos = {c2Max(selectorStart[0], selectorEnd[0]), c2Max(selectorStart[1], selectorEnd[1])};
                     c2AABB selectorBox = {{minPos[0], minPos[1]}, {maxPos[0], maxPos[1]}};
+                    printf("Selector box is %f %f, %f, %f\n", selectorBox.min.x, selectorBox.min.y, selectorBox.max.x, selectorBox.max.y);
                     c2AABB visualSymbolBounds = {{transform[i].pos[0], transform[i].pos[1]}, {transform[i].pos[0] + texture[i].width / texture[i].scale[0], transform[i].pos[1] + texture[i].height / texture[i].scale[0]}};
+                    printf("Symbol bounds are %f %f, %f, %f\n", visualSymbolBounds.min.x, visualSymbolBounds.min.y, visualSymbolBounds.max.x, visualSymbolBounds.max.y);
                     bool selectorOverlaps = c2AABBtoAABB(selectorBox, visualSymbolBounds);
 
                     if (selectorOverlaps)
                     {
                         select_visual_symbol(it->world, qIt.entities[i]);
+                        if (interaction->mode == CROP)
+                        {
+                            // What rect of texture is drag selector overlapping
+                            float min_x = c2Max(0, selectorBox.min.x - visualSymbolBounds.min.x);
+                            float min_y = c2Max(0, selectorBox.min.y - visualSymbolBounds.min.y);
+                            float vs_width = visualSymbolBounds.max.x - visualSymbolBounds.min.x;
+                            float vs_height = visualSymbolBounds.max.y - visualSymbolBounds.min.y;
+                            c2AABB bounds = {{min_x*texture[i].scale[0], min_y*texture[i].scale[1]},
+                            {c2Min(vs_width, selectorBox.max.x - visualSymbolBounds.min.x)*texture[i].scale[0], c2Min(vs_height, selectorBox.max.y - visualSymbolBounds.min.y)*texture[i].scale[1]}};
+                            printf("Texture segment cropped is %f %f, %f, %f\n", bounds.min.x, bounds.min.y, bounds.max.x, bounds.max.y);
+                            ecs_set(it->world, qIt.entities[i], TextureView, {bounds});
+                        }
                     }
                 }
 
@@ -1723,6 +1847,7 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
 
             bool selectAdd = false;
             bool grabSelected = false;
+            bool cropSelected = false;
             while (ecs_query_next(&qIt))
             {
                 Transform2D* transform = ecs_term(&qIt, Transform2D, 1);
@@ -1747,10 +1872,20 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
                     {
                         if (isSelected)
                         {
-                            grabSelected = true;
+                            if (interaction->mode == STANDARD)
+                            {
+                                grabSelected = true;
+                            } 
+                            else if (interaction->mode == CROP)
+                            {
+                                cropSelected = true;
+                            }
                         }
-                        toSelectNodes[toSelectCount] = qIt.entities[i];
-                        toSelectCount++;
+                        if (interaction->mode == STANDARD)
+                        {
+                            toSelectNodes[toSelectCount] = qIt.entities[i];
+                            toSelectCount++;
+                        }
                     }
                 }
             }
@@ -1770,32 +1905,33 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
                     }
                 } else
                 {
-                    // Determine if the scale selectors were grabbed
-                    // if (!mouseInputAction->active)
-                    // {
-                    for (int32_t i = 0; i < curSelectedCount; i++)
+                    bool shouldDeselect = !cropSelected;
+                    if (shouldDeselect)
                     {
-                        // ecs_term_iter is not correct! Need to use something else to create the iter
-                        ecs_iter_t children = ecs_term_iter(it->world, &(ecs_term_t){.id = ecs_childof(curSelectedNodes[i])});
-                        ecs_defer_begin(children.world);
-                        while (ecs_term_next(&children)) {
-                            for (int c = 0; c < children.count; c++) {
-                                ecs_delete(children.world, children.entities[c]);
+                        for (int32_t i = 0; i < curSelectedCount; i++)
+                        {
+                            // ecs_term_iter is not correct! Need to use something else to create the iter
+                            ecs_iter_t children = ecs_term_iter(it->world, &(ecs_term_t){.id = ecs_childof(curSelectedNodes[i])});
+                            ecs_defer_begin(children.world);
+                            while (ecs_term_next(&children)) {
+                                for (int c = 0; c < children.count; c++) {
+                                    ecs_delete(children.world, children.entities[c]);
+                                }
                             }
+                            ecs_defer_end(children.world);
+                            ecs_remove(it->world, curSelectedNodes[i], Selected);
                         }
-                        ecs_defer_end(children.world);
-                        ecs_remove(it->world, curSelectedNodes[i], Selected);
                     }
                     if (toSelectCount > 0)
                     {
                         add_command_on_grab(it, &buffer);
                         select_visual_symbol(it->world, toSelectNodes[0]);
                         ecs_add(it->world, toSelectNodes[0], Grabbed);
-                    } else
+                    }
+                    if (toSelectCount == 0 || !shouldDeselect) 
                     {
                         ecs_set(it->world, input, DragSelector, {xpos, ypos, 0, 0});
                     }
-                    // }
                 }
             }
             printf(", Select query end %f\n", it->world_time);
@@ -1934,17 +2070,27 @@ void RenderSelectionIndicators(ecs_iter_t* it)
     nvgBeginPath(nano->vg);
     float radius = 6;
 
+    Transform2D* transform = ecs_term(it, Transform2D, 3);
+    Texture2D* texture = ecs_term(it, Texture2D, 4);
+    TextureView* tv = ecs_term(it, TextureView, 5);
+
     for (int32_t i = 0; i < it->count; i++)
     {
-        Transform2D* transform = ecs_term(it, Transform2D, 3);
-        Texture2D* texture = ecs_term(it, Texture2D, 4);
-        vec2 upperLeft = {transform[i].pos[0], transform[i].pos[1]};
+        vec4 offsets = {0, 0, texture[i].width, texture[i].height};
+        if (ecs_term_is_set(it, 5))
+        {
+            offsets[0] = tv[i].bounds.min.x / texture[i].scale[0];
+            offsets[1] = tv[i].bounds.min.y / texture[i].scale[1];
+            offsets[2] = tv[i].bounds.max.x;
+            offsets[3] = tv[i].bounds.max.y;
+        }
+        vec2 upperLeft = {transform[i].pos[0] + offsets[0], transform[i].pos[1] + offsets[1]};
         world_to_screen(camera->view, upperLeft, upperLeft);
-        vec2 upperRight = {transform[i].pos[0] + texture[i].width / texture[i].scale[0], transform[i].pos[1]};
+        vec2 upperRight = {transform[i].pos[0] + c2Min(offsets[2], texture[i].width) / texture[i].scale[0], transform[i].pos[1] + offsets[1]};
         world_to_screen(camera->view, upperRight, upperRight);
-        vec2 lowerLeft = {transform[i].pos[0], transform[i].pos[1] + texture[i].height / texture[i].scale[1]};
+        vec2 lowerLeft = {transform[i].pos[0] + offsets[0], transform[i].pos[1] + c2Min(texture[i].height, offsets[3]) / texture[i].scale[1]};
         world_to_screen(camera->view, lowerLeft, lowerLeft);
-        vec2 lowerRight = {transform[i].pos[0] + texture[i].width / texture[i].scale[0], transform[i].pos[1] + texture[i].height / texture[i].scale[1]};
+        vec2 lowerRight = {transform[i].pos[0] + c2Min(offsets[2], texture[i].width) / texture[i].scale[0], transform[i].pos[1] + c2Min(texture[i].height, offsets[3]) / texture[i].scale[1]};
         world_to_screen(camera->view, lowerRight, lowerRight);
 
         float w = upperRight[0] - upperLeft[0];
@@ -2177,8 +2323,8 @@ int main(int argc, char const *argv[])
     srand(time(0));
 
     // Embed Python
-    pthread_t python_thread;
-    pthread_create(&python_thread, NULL, embed_python, (void*)NULL);
+    // pthread_t python_thread;
+    // pthread_create(&python_thread, NULL, embed_python, (void*)NULL);
 
     buffer.index = 0;
     buffer.count = 0;
@@ -2213,6 +2359,9 @@ int main(int argc, char const *argv[])
     ECS_COMPONENT_DEFINE(world, WaitThreadComplete);
     ECS_COMPONENT_DEFINE(world, EventPaintLoad);
     ECS_COMPONENT_DEFINE(world, EventSavePaintIntersection);
+    ECS_COMPONENT_DEFINE(world, InteractionState);
+    ECS_COMPONENT_DEFINE(world, TextureView);
+    typedef enum SelectMode SelectMode;
     ECS_TAG_DEFINE(world, Grabbed);
     ECS_TAG_DEFINE(world, DragHover);
     ECS_TAG_DEFINE(world, TakeSnapshot);
@@ -2220,6 +2369,7 @@ int main(int argc, char const *argv[])
 
     // ECS_IMPORT(world, InputModule);
     input = ecs_set_name(world, 0, "input");
+    ecs_set(world, input, InteractionState, {STANDARD});
 
     AI_painter = ecs_set_name(world, 0, "AI_painter");
     ecs_set(world, AI_painter, Transform2D, {0.0f, 0.0f});
@@ -2284,18 +2434,19 @@ int main(int argc, char const *argv[])
     //     ecs_set(world, nav_command, SavedData, {argv[1]});
     // }
 
+    ECS_SYSTEM(world, ChangeInteractionOnKeyPress, EcsPreFrame, EventKey(input), InteractionState(input));
     ECS_SYSTEM(world, SavePaintFrameInput, EcsPreFrame, Transform2D, Texture2D, Camera(renderer), PaintFrame(AI_painter), EventSavePaintIntersection(AI_painter), Transform2D(AI_painter), [inout] *());
     ECS_SYSTEM(world, LoadPaintedImage, EcsPreFrame, [inout]*());
     ECS_SYSTEM(world, IndicateSavePaint, EcsPreFrame, PaintFrame, EventKey(input));
     ECS_SYSTEM(world, CheckThreadComplete, EcsPreFrame, WaitThreadComplete, [inout] *());
     ECS_SYSTEM(world, ResetCursor, EcsPreFrame, EventMouseMotion);
     ECS_SYSTEM(world, AnimateGif, EcsPreUpdate, GifAnimator, Texture2D, MultiTexture2D);
-    ECS_SYSTEM(world, RenderSprites, EcsOnUpdate, Camera(renderer), BatchSpriteRenderer(renderer), Transform2D, Texture2D);
+    ECS_SYSTEM(world, RenderSprites, EcsOnUpdate, Camera(renderer), BatchSpriteRenderer(renderer), Transform2D, Texture2D, ?TextureView);
     //ECS_SYSTEM(world, RenderNineSlices, EcsOnUpdate, renderer:Camera, renderer:BatchSpriteRenderer, Transform2D, Texture2D, NineSlice);
     ECS_SYSTEM(world, GrabMoveCamera, EcsPreUpdate, Camera(renderer), EventMouseMotion(input));
     ECS_SYSTEM(world, ScrollZoomCamera, EcsPreUpdate, Camera(renderer), EventScroll(input));
     ECS_SYSTEM(world, CameraCalculateView, EcsOnUpdate, Camera);
-    ECS_SYSTEM(world, SelectVisualSymbolQuery, EcsPreUpdate, Camera(renderer), EventMouseButton(input), [inout] *());
+    ECS_SYSTEM(world, SelectVisualSymbolQuery, EcsPreUpdate, Camera(renderer), EventMouseButton(input), InteractionState(input), !ActionOnMouseInput(input), [inout] *());
     ECS_SYSTEM(world, OpenSymbolPath, EcsPreUpdate, Camera(renderer), EventMouseButton(input), !ActionOnMouseInput(input), [inout] *());
     ECS_SYSTEM(world, MoveGrabbedTransforms, EcsPreFrame, Camera(renderer), EventMouseMotion(input), Transform2D, Grabbed);
     ECS_SYSTEM(world, ConsumeEvents, EcsPostFrame, (ConsumeEvent, *));
@@ -2313,20 +2464,22 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, TypePaintPrompt, EcsPostUpdate, PaintFrame(AI_painter), EventCharEntry(input), [inout] *());
     ECS_SYSTEM(world, BackspacePaintPrompt, EcsPostUpdate, PaintFrame(AI_painter), EventKey(input), [inout] *());
 
-    ECS_SYSTEM(world, AnchorPropagate, EcsPreUpdate, ?Transform2D(parent|cascade), Texture2D(parent), Transform2D, Anchor);
+    // TODO: Upgrade to Flecs 3.0, ?TextureView(parent) is never matched, why???
+    ECS_SYSTEM(world, AnchorPropagate, EcsPreUpdate, ?Transform2D(parent|cascade), Texture2D(parent), !TextureView(parent), Transform2D, Anchor);
+    ECS_SYSTEM(world, AnchorPropagatePartial, EcsPreUpdate, ?Transform2D(parent|cascade), Texture2D(parent), TextureView(parent), Transform2D, Anchor);
 
     ECS_SYSTEM(world, RenderActionIndicators, EcsPostUpdate, NanoVG(renderer), Camera(renderer), Transform2D, CircleActionIndicator);
     // ECS_SYSTEM(world, RenderImageSelectionIndicators, EcsPostUpdate, Camera(renderer), BatchSpriteRenderer(renderer), Transform2D, Texture2D, Selected);
-    ECS_SYSTEM(world, RenderSelectionIndicators, EcsPostUpdate, NanoVG(renderer), Camera(renderer), Transform2D, Texture2D, Selected);
+    ECS_SYSTEM(world, RenderSelectionIndicators, EcsPostUpdate, NanoVG(renderer), Camera(renderer), Transform2D, Texture2D, ?TextureView, Selected);
 
-    ECS_SYSTEM(world, RenderDragSelector, EcsPostUpdate, NanoVG(renderer), DragSelector(input));
+    ECS_SYSTEM(world, RenderDragSelector, EcsPostUpdate, NanoVG(renderer), DragSelector(input), InteractionState(input));
     ECS_SYSTEM(world, LoadClipboardFiles, EcsOnUpdate, EventMouseButton(input));
     ECS_SYSTEM(world, UpdateCursorAction, EcsOnUpdate, Camera(renderer), EventMouseMotion(input), CircleActionIndicator, Transform2D, Texture2D(parent), !ActionOnMouseInput(input));
     ECS_SYSTEM(world, TransformCascadeHierarchy, EcsPreFrame, ?Transform2D(parent|cascade), Transform2D, Local2D);
 // PARENT:Transform2D,
     ECS_SYSTEM(world, MouseStartAction, EcsOnUpdate, EventMouseButton, ActionOnMouseInput);
     ECS_SYSTEM(world, MouseEndAction, EcsPreFrame, EventMouseButton, ActionOnMouseInput);
-    ECS_SYSTEM(world, MouseAffectAction, EcsOnUpdate, EventMouseMotion(input), ActionOnMouseInput(input), Camera(renderer), Transform2D, Texture2D);
+    ECS_SYSTEM(world, MouseAffectAction, EcsOnUpdate, EventMouseMotion(input), ActionOnMouseInput(input), Camera(renderer), Transform2D, Texture2D, ?TextureView);
 
     ECS_SYSTEM(world, UpdatePromptFromSpeech, EcsOnUpdate, PaintFrame(AI_painter));
 

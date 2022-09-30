@@ -25,3 +25,6 @@
 [submodule "deps/curl"]
 	path = deps/curl
 	url = https://github.com/curl/curl.git
+[submodule "deps/clipseg"]
+	path = deps/clipseg
+	url = https://github.com/timojl/clipseg.git

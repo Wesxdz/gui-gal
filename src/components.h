@@ -56,6 +56,13 @@ ECS_COMPONENT_DECLARE(Texture2D);
 
 typedef struct
 {
+    c2AABB bounds;
+} TextureView;
+ECS_COMPONENT_DECLARE(TextureView);
+
+
+typedef struct
+{
     const char* path;
 } LocalFile;
 ECS_COMPONENT_DECLARE(LocalFile);
@@ -95,6 +102,18 @@ typedef struct {
     float x, y, w, h;
 } DragSelector;
 ECS_COMPONENT_DECLARE(DragSelector);
+
+enum SelectMode
+{
+    STANDARD=0,
+    CROP
+};
+typedef enum SelectMode SelectMode;
+
+typedef struct {
+    SelectMode mode;
+} InteractionState;
+ECS_COMPONENT_DECLARE(InteractionState);
 
 typedef struct {
     float w, h;
