@@ -1776,7 +1776,7 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
     ecs_defer_begin(it->world);
     if (event->button == GLFW_MOUSE_BUTTON_LEFT)
     {
-        ecs_query_t* query = ecs_query_new(world, "Transform2D, Texture2D"); // TODO: Store?
+        ecs_query_t* query = ecs_query_new(world, "Transform2D, Texture2D, ?TextureView"); // TODO: Store?
         ecs_iter_t qIt = ecs_query_iter(it->world, query);
 
         size_t visualSymbolCount = 0;
@@ -1796,6 +1796,7 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
             {
                 Transform2D* transform = ecs_term(&qIt, Transform2D, 1);
                 Texture2D* texture = ecs_term(&qIt, Texture2D, 2);
+                TextureView* tv = ecs_term(&qIt, TextureView, 3);
 
                 for (int32_t i = 0; i < qIt.count; i++)
                 {
@@ -1810,8 +1811,17 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
                     c2AABB selectorBox = {{minPos[0], minPos[1]}, {maxPos[0], maxPos[1]}};
                     printf("Selector box is %f %f, %f, %f\n", selectorBox.min.x, selectorBox.min.y, selectorBox.max.x, selectorBox.max.y);
                     c2AABB visualSymbolBounds = {{transform[i].pos[0], transform[i].pos[1]}, {transform[i].pos[0] + texture[i].width / texture[i].scale[0], transform[i].pos[1] + texture[i].height / texture[i].scale[0]}};
-                    printf("Symbol bounds are %f %f, %f, %f\n", visualSymbolBounds.min.x, visualSymbolBounds.min.y, visualSymbolBounds.max.x, visualSymbolBounds.max.y);
-                    bool selectorOverlaps = c2AABBtoAABB(selectorBox, visualSymbolBounds);
+                    c2AABB croppedVSB = visualSymbolBounds;
+                    if (ecs_term_is_set(&qIt, 3))
+                    {
+                        printf("Query for view is set\n");
+                        croppedVSB.min.x += tv[i].bounds.min.x/texture[i].scale[0];
+                        croppedVSB.min.y += tv[i].bounds.min.y/texture[i].scale[1];
+                        croppedVSB.max.x = transform[i].pos[0] + tv[i].bounds.max.x/texture[i].scale[0];
+                        croppedVSB.max.y = transform[i].pos[1] + tv[i].bounds.max.y/texture[i].scale[1];
+                    }
+                    printf("Symbol bounds are %f %f, %f, %f\n", croppedVSB.min.x, croppedVSB.min.y, croppedVSB.max.x, croppedVSB.max.y);
+                    bool selectorOverlaps = c2AABBtoAABB(selectorBox, croppedVSB);
 
                     if (selectorOverlaps)
                     {
@@ -1852,6 +1862,7 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
             {
                 Transform2D* transform = ecs_term(&qIt, Transform2D, 1);
                 Texture2D* texture = ecs_term(&qIt, Texture2D, 2);
+                TextureView* tv = ecs_term(&qIt, TextureView, 3);
 
                 if (right == GLFW_PRESS || left == GLFW_PRESS)
                 {
@@ -1859,16 +1870,24 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
                 }
                 for (int32_t i = 0; i < qIt.count; i++)
                 {
-                    vec2 dist = {0.0f, 0.0f};
-                    glm_vec2_sub(worldPos, transform[i].pos, dist);
                     bool isSelected = ecs_has(qIt.world, qIt.entities[i], Selected);
                     if (isSelected)
                     {
                         curSelectedNodes[curSelectedCount] = qIt.entities[i];
                         curSelectedCount++;
                     }
-                    if (dist[0] > 0.0 && dist[0] <= texture[i].width / texture[i].scale[0] &&
-                    dist[1] > 0.0 && dist[1] <= texture[i].height / texture[i].scale[1])
+                    c2AABB visualSymbolBounds = {{transform[i].pos[0], transform[i].pos[1]}, {transform[i].pos[0] + texture[i].width / texture[i].scale[0], transform[i].pos[1] + texture[i].height / texture[i].scale[0]}};
+                    c2AABB croppedVSB = visualSymbolBounds;
+                    if (ecs_term_is_set(&qIt, 3))
+                    {
+                        printf("Query for view is set\n");
+                        croppedVSB.min.x += tv[i].bounds.min.x/texture[i].scale[0];
+                        croppedVSB.min.y += tv[i].bounds.min.y/texture[i].scale[1];
+                        croppedVSB.max.x = transform[i].pos[0] + tv[i].bounds.max.x/texture[i].scale[0];
+                        croppedVSB.max.y = transform[i].pos[1] + tv[i].bounds.max.y/texture[i].scale[1];
+                    }
+                    c2v queryPoint = {worldPos[0], worldPos[1]};
+                    if (c2AABBtoPoint(croppedVSB, queryPoint))
                     {
                         if (isSelected)
                         {
