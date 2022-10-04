@@ -84,37 +84,37 @@ def update_speech_eval(block):
 #     print(f"Speech segment parsed {result.text}")
 
 def process_recording(data):
-    global speech_in_progress
-    global blocks
-    # print(f"{data}\n")
-    block = np.asarray([s[0] for s in data], dtype='f')
-    volume = sum(abs(s) for s in block)
-    # print(f"{volume}\n")
-    possible_speech = volume > ambience_threshold
-    if possible_speech:
-        # Run the tiny model on the segment of speech in progress
-        if not speech_in_progress:
-            print(f"Speech started at {active_speech_segment.start_block}")
-            speech_in_progress = True
-            active_speech_segment.start_block = max(0, bindex-1)
-        update_speech_eval(block)
-    else:
-        speech_ended = speech_in_progress and ((bindex - active_speech_segment.start_block) * block_time) > silence_time
-        if speech_ended:
-            active_speech_segment.end_block = bindex
-            ss = SpeechSegment(active_speech_segment.start_block, bindex)
-            speech_segments.append(ss)
-            # hd_speech_eval(ss, block)
-            speech_in_progress = False
-            update_speech_eval(block)
-    blocks.append(data)
+    pass
+    # global speech_in_progress
+    # global blocks
+    # # print(f"{data}\n")
+    # block = np.asarray([s[0] for s in data], dtype='f')
+    # volume = sum(abs(s) for s in block)
+    # # print(f"{volume}\n")
+    # possible_speech = volume > ambience_threshold
+    # if possible_speech:
+    #     # Run the tiny model on the segment of speech in progress
+    #     if not speech_in_progress:
+    #         print(f"Speech started at {active_speech_segment.start_block}")
+    #         speech_in_progress = True
+    #         active_speech_segment.start_block = max(0, bindex-1)
+    #     update_speech_eval(block)
+    # else:
+    #     speech_ended = speech_in_progress and ((bindex - active_speech_segment.start_block) * block_time) > silence_time
+    #     if speech_ended:
+    #         active_speech_segment.end_block = bindex
+    #         ss = SpeechSegment(active_speech_segment.start_block, bindex)
+    #         # speech_segments.append(ss)
+    #         # hd_speech_eval(ss, block)
+    #         speech_in_progress = False
+    #         update_speech_eval(block)
+    # blocks.append(data)
     # print(flit.voice_command(str(in_progress_speech_detected))) # "Example string"
 
 host = "localhost"
 port = 9999
 
 def gen_img(req):
-    global q
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     remote_ip = socket.gethostbyname(host)
     s.connect((remote_ip, port))
@@ -122,6 +122,7 @@ def gen_img(req):
     s.sendall(str.encode(req))
     data = s.recv(1024)
     print('Received', data.decode())
+    global q
     q.put(data.decode())
 
 # def get_clipseg(req):
@@ -142,9 +143,9 @@ with instream:
             th.start()
         data = q.get()
         if data is not None:
-            # print(type(data))
+            print(type(data))
             if type(data) is np.ndarray:
                 process_recording(data)
-            elif type(data) is str:
+            if type(data) is str:
                 print("Load target\n")
                 flit.load_generated_image(data)

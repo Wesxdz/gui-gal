@@ -117,6 +117,7 @@ ECS_COMPONENT_DECLARE(InteractionState);
 
 typedef struct {
     float w, h;
+    bool run_endless;
     int interaction_mode;
     char prompt[1024];
 } PaintFrame;

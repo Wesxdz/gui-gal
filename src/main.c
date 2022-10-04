@@ -715,20 +715,32 @@ void LoadDroppedFiles(ecs_iter_t* it)
     vec2 cursor_world_pos;
     screen_to_world(camera->view, cursor_screen_pos, cursor_world_pos);
     printf("Load dropped files\n");
-    float x = 0;
+    float x, y = 0;
     Anchor place = {0, 0};
     if (drop->count == 1)
     {
         place.horizontal = 0.5;
         place.vertical = 0.5;
     }
+    float maxCols = 10;
+    float maxHeight = 0;
+    float colIter = 0;
     for (int i = 0; i < drop->count; i++)
     {
-        VisualSymbolCreated vsc = load_visual_symbol(it->world, drop->paths[i], x + cursor_world_pos[0], cursor_world_pos[1], place);
+        VisualSymbolCreated vsc = load_visual_symbol(it->world, drop->paths[i], x + cursor_world_pos[0], y + cursor_world_pos[1], place);
         // ecs_get is not available right away, I would like to understand why this is more
         // const Texture2D* texture = ecs_get(it->world, entity, Texture2D);
         
         x += vsc.size[0];
+        maxHeight = c2Max(vsc.size[1], maxHeight);
+        colIter++;
+        if (colIter > maxCols)
+        {
+            colIter = 0;
+            x = 0;
+            y += maxHeight;
+            maxHeight = 0;
+        }
     }
     free(drop->paths); // TODO: Move to another system and free unused paths
 }
@@ -1044,9 +1056,14 @@ void MoveDragSelector(ecs_iter_t* it)
 {
     DragSelector* selector = ecs_term(it, DragSelector, 1);
     EventMouseMotion* event = ecs_term(it, EventMouseMotion, 2);
+    Camera* camera = ecs_term(it, Camera, 3);
 
     selector->w = event->pos[0] - selector->x;
     selector->h = event->pos[1] - selector->y;
+    ecs_defer_begin(it->world);
+    select_dragged(it, selector, camera);
+    ecs_defer_end(it->world);
+    // TODO: Select new overlaps!
 }
 
 void ScaleVisualSymbol(ecs_iter_t* it)
@@ -1222,6 +1239,7 @@ flit_voice_command(PyObject* self, PyObject* args) // PyObject* params
 
 // Start with something simple that works, then add queue
 static bool should_create_image = false;
+static bool is_creating_image = false;
 static char* prompt = "";
 
 static PyObject*
@@ -1399,11 +1417,24 @@ void BackspacePaintPrompt(ecs_iter_t* it)
     printf("Key is %i. Action is %i\n",key->scancode, key->action);
     if (key->key == GLFW_KEY_ENTER && key->action == GLFW_PRESS)
     {
-        pthread_mutex_lock(&mutex_stable_diffusion);
-        printf("Start create image!");
-        prompt = paint->prompt;
-        should_create_image = true;
-        pthread_mutex_unlock(&mutex_stable_diffusion);
+        paint->run_endless = !paint->run_endless;
+    }
+}
+
+void GenerateImages(ecs_iter_t* it)
+{
+    PaintFrame* paint = ecs_term(it, PaintFrame, 1);
+    if (paint->run_endless)
+    {
+        if (!is_creating_image)
+        {
+            pthread_mutex_lock(&mutex_stable_diffusion);
+            printf("Start create image!");
+            prompt = paint->prompt;
+            should_create_image = true;
+            is_creating_image = true;
+            pthread_mutex_unlock(&mutex_stable_diffusion); 
+        }
     }
 }
 
@@ -1484,6 +1515,7 @@ void LoadPaintedImage(ecs_iter_t* it)
             // free(paintLoad->filepath);
             // ecs_delete(it->world, it->entities[0]);
             should_load_image = false;
+            is_creating_image = false;
         }
         pthread_mutex_unlock(&mutex_image_loader);
     }
@@ -1756,6 +1788,66 @@ void SavePaintFrameInput(ecs_iter_t* it)
         printf("Check texture with %d width", texture[i].width);
     }
     ecs_remove(it->world, AI_painter, EventSavePaintIntersection);
+}
+
+void select_dragged(ecs_iter_t* it, DragSelector* selector, Camera* camera)
+{
+    ecs_query_t* query = ecs_query_new(world, "Transform2D, Texture2D, ?TextureView"); // TODO: Store?
+    ecs_iter_t qIt = ecs_query_iter(it->world, query);
+    while (ecs_query_next(&qIt))
+    {
+        Transform2D* transform = ecs_term(&qIt, Transform2D, 1);
+        Texture2D* texture = ecs_term(&qIt, Texture2D, 2);
+        TextureView* tv = ecs_term(&qIt, TextureView, 3);
+
+        for (int32_t i = 0; i < qIt.count; i++)
+        {
+            vec2 sStart = {selector->x, selector->y};
+            vec2 selectorStart;
+            screen_to_world(camera->view, sStart, selectorStart);
+            vec2 sEnd = {selector->x + selector->w, selector->y + selector->h};
+            vec2 selectorEnd;
+            screen_to_world(camera->view, sEnd, selectorEnd);
+            vec2 minPos = {c2Min(selectorStart[0], selectorEnd[0]), c2Min(selectorStart[1], selectorEnd[1])};
+            vec2 maxPos = {c2Max(selectorStart[0], selectorEnd[0]), c2Max(selectorStart[1], selectorEnd[1])};
+            c2AABB selectorBox = {{minPos[0], minPos[1]}, {maxPos[0], maxPos[1]}};
+            printf("Selector box is %f %f, %f, %f\n", selectorBox.min.x, selectorBox.min.y, selectorBox.max.x, selectorBox.max.y);
+            c2AABB visualSymbolBounds = {{transform[i].pos[0], transform[i].pos[1]}, {transform[i].pos[0] + texture[i].width / texture[i].scale[0], transform[i].pos[1] + texture[i].height / texture[i].scale[0]}};
+            c2AABB croppedVSB = visualSymbolBounds;
+            if (ecs_term_is_set(&qIt, 3))
+            {
+                printf("Query for view is set\n");
+                croppedVSB.min.x += tv[i].bounds.min.x/texture[i].scale[0];
+                croppedVSB.min.y += tv[i].bounds.min.y/texture[i].scale[1];
+                croppedVSB.max.x = transform[i].pos[0] + tv[i].bounds.max.x/texture[i].scale[0];
+                croppedVSB.max.y = transform[i].pos[1] + tv[i].bounds.max.y/texture[i].scale[1];
+            }
+            printf("Symbol bounds are %f %f, %f, %f\n", croppedVSB.min.x, croppedVSB.min.y, croppedVSB.max.x, croppedVSB.max.y);
+            bool selectorOverlaps = c2AABBtoAABB(selectorBox, croppedVSB);
+
+            bool isSelected = ecs_has(it->world, qIt.entities[i], Selected);
+            if (selectorOverlaps)
+            {
+                if (!isSelected)
+                {
+                    select_visual_symbol(it->world, qIt.entities[i]);
+                }
+            } else if (isSelected) // deselect
+            {
+                // ecs_term_iter is not correct! Need to use something else to create the iter
+                ecs_iter_t children = ecs_term_iter(it->world, &(ecs_term_t){.id = ecs_childof(qIt.entities[i])});
+                ecs_defer_begin(children.world);
+                while (ecs_term_next(&children)) {
+                    for (int c = 0; c < children.count; c++) {
+                        ecs_delete(children.world, children.entities[c]);
+                    }
+                }
+                ecs_defer_end(children.world);
+                ecs_remove(it->world, qIt.entities[i], Selected);
+            }
+        }
+
+    }
 }
 
 void SelectVisualSymbolQuery(ecs_iter_t* it)
@@ -2092,6 +2184,7 @@ void RenderSelectionIndicators(ecs_iter_t* it)
     Transform2D* transform = ecs_term(it, Transform2D, 3);
     Texture2D* texture = ecs_term(it, Texture2D, 4);
     TextureView* tv = ecs_term(it, TextureView, 5);
+    vec4 bounds;
 
     for (int32_t i = 0; i < it->count; i++)
     {
@@ -2115,30 +2208,42 @@ void RenderSelectionIndicators(ecs_iter_t* it)
         float w = upperRight[0] - upperLeft[0];
         float h = lowerLeft[1] - upperLeft[1];
 
-        nvgRect(nano->vg, upperLeft[0] - radius, upperLeft[1] - radius, 1, h + radius*2);
-        nvgRect(nano->vg, upperLeft[0] - radius, upperLeft[1] - radius, w + radius*2, 1);
-        nvgRect(nano->vg, lowerRight[0] + radius, lowerRight[1] + radius, 1, -h - radius*2);
-        nvgRect(nano->vg, lowerRight[0] + radius, lowerRight[1] + radius, -w - radius*2, 1);
+        nvgRect(nano->vg, upperLeft[0], upperLeft[1], upperRight[0] - upperLeft[0], lowerRight[1] - upperRight[1]);
+        
+        if (i == 0)
+        {
+            bounds[0] = upperLeft[0];
+            bounds[1] = upperLeft[1];
+            bounds[2] = lowerRight[0];
+            bounds[3] = lowerRight[1];
+        }
+        bounds[0] = c2Min(bounds[0], upperLeft[0]);
+        bounds[1] = c2Min(bounds[1], upperLeft[1]);
+        bounds[2] = c2Max(bounds[2], lowerRight[0]);
+        bounds[3] = c2Max(bounds[3], lowerRight[1]);
 
-        nvgRect(nano->vg, upperLeft[0] - radius - 1, upperLeft[1] - radius, 3, h/4 + radius*2);
-        nvgRect(nano->vg, upperLeft[0] - radius, upperLeft[1] - radius - 1, w/4 + radius*2, 3);
+        // nvgRect(nano->vg, upperLeft[0] - radius, upperLeft[1] - radius, 1, h + radius*2);
+        // nvgRect(nano->vg, upperLeft[0] - radius, upperLeft[1] - radius, w + radius*2, 1);
+        // nvgRect(nano->vg, lowerRight[0] + radius, lowerRight[1] + radius, 1, -h - radius*2);
+        // nvgRect(nano->vg, lowerRight[0] + radius, lowerRight[1] + radius, -w - radius*2, 1);
 
-        nvgRect(nano->vg, lowerRight[0] + radius - 1, lowerRight[1] + radius, 3, -h/4 - radius*2);
-        nvgRect(nano->vg, lowerRight[0] + radius, lowerRight[1] + radius - 1, -w/4 - radius*2, 3);
+        // nvgRect(nano->vg, upperLeft[0] - radius - 1, upperLeft[1] - radius, 3, h/4 + radius*2);
+        // nvgRect(nano->vg, upperLeft[0] - radius, upperLeft[1] - radius - 1, w/4 + radius*2, 3);
 
-        nvgRect(nano->vg, upperRight[0] + radius - 1, upperRight[1] - radius, 3, h/4 + radius*2);
-        nvgRect(nano->vg, upperRight[0] + radius, upperRight[1] - radius - 1, -w/4 - radius*2, 3);
+        // nvgRect(nano->vg, lowerRight[0] + radius - 1, lowerRight[1] + radius, 3, -h/4 - radius*2);
+        // nvgRect(nano->vg, lowerRight[0] + radius, lowerRight[1] + radius - 1, -w/4 - radius*2, 3);
 
-        nvgRect(nano->vg, lowerLeft[0] - radius - 1, lowerLeft[1] + radius, 3, -h/4 - radius*2);
-        nvgRect(nano->vg, lowerLeft[0] - radius, lowerLeft[1] + radius - 1, w/4 + radius*2, 3);
+        // nvgRect(nano->vg, upperRight[0] + radius - 1, upperRight[1] - radius, 3, h/4 + radius*2);
+        // nvgRect(nano->vg, upperRight[0] + radius, upperRight[1] - radius - 1, -w/4 - radius*2, 3);
 
-        // nvgCircle(nano->vg, upperLeft[0] - radius, upperLeft[1] - radius, radius);
-        // nvgCircle(nano->vg, upperRight[0] + radius, upperRight[1] - radius, radius);
-        // nvgCircle(nano->vg, lowerLeft[0] - radius, lowerLeft[1] + radius, radius);
-        // nvgCircle(nano->vg, lowerRight[0] + radius, lowerRight[1] + radius, radius);
+        // nvgRect(nano->vg, lowerLeft[0] - radius - 1, lowerLeft[1] + radius, 3, -h/4 - radius*2);
+        // nvgRect(nano->vg, lowerLeft[0] - radius, lowerLeft[1] + radius - 1, w/4 + radius*2, 3);
     }
-    nvgFillColor(nano->vg, nvgRGBA(157, 3, 252,255));
-    nvgFill(nano->vg);
+    nvgRect(nano->vg, bounds[0], bounds[1], bounds[2] - bounds[0], bounds[3] - bounds[1]);
+    nvgStrokeColor(nano->vg, nvgRGBA(157, 3, 252,255));
+    nvgStroke(nano->vg);
+    // nvgFillColor(nano->vg, nvgRGBA(157, 3, 252,255));
+    // nvgFill(nano->vg);
     nvgClosePath(nano->vg);
     // glEnable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
@@ -2392,7 +2497,7 @@ int main(int argc, char const *argv[])
 
     AI_painter = ecs_set_name(world, 0, "AI_painter");
     ecs_set(world, AI_painter, Transform2D, {0.0f, 0.0f});
-    ecs_set(world, AI_painter, PaintFrame, {512.0f, 512.0f, 0, ""});
+    ecs_set(world, AI_painter, PaintFrame, {512.0f, 512.0f, false, 0, ""});
 
     ECS_OBSERVER(world, SetupBatchRenderer, EcsOnSet, BatchSpriteRenderer);
     ECS_OBSERVER(world, SetupCamera, EcsOnSet, Camera);
@@ -2475,13 +2580,15 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, EndNanoVGFrame, EcsPostUpdate, NanoVG(renderer));
     ECS_SYSTEM(world, RenderDragHover, EcsPostUpdate, NanoVG(renderer), DragHover(input));
     ECS_SYSTEM(world, RenderPaintFrame, EcsPostUpdate, NanoVG(renderer), Camera(renderer), Transform2D(AI_painter), PaintFrame(AI_painter));
-    ECS_SYSTEM(world, MoveDragSelector, EcsOnUpdate, DragSelector(input), EventMouseMotion(input));
+    ECS_SYSTEM(world, MoveDragSelector, EcsPreFrame, DragSelector(input), EventMouseMotion(input), Camera(renderer));
     ECS_SYSTEM(world, UndoCommand, EcsOnUpdate, EventKey(input));
     ECS_SYSTEM(world, SaveProjectShortcut, EcsPostUpdate, EventKey(input), [inout] *());
     ECS_SYSTEM(world, InterpolateCamera, EcsPostUpdate, Camera);
     ECS_SYSTEM(world, RenderImageName, EcsPostUpdate, NanoVG(renderer));
     ECS_SYSTEM(world, TypePaintPrompt, EcsPostUpdate, PaintFrame(AI_painter), EventCharEntry(input), [inout] *());
     ECS_SYSTEM(world, BackspacePaintPrompt, EcsPostUpdate, PaintFrame(AI_painter), EventKey(input), [inout] *());
+
+    ECS_SYSTEM(world, GenerateImages, EcsPostUpdate, PaintFrame(AI_painter));
 
     // TODO: Upgrade to Flecs 3.0, ?TextureView(parent) is never matched, why???
     ECS_SYSTEM(world, AnchorPropagate, EcsPreUpdate, ?Transform2D(parent|cascade), Texture2D(parent), !TextureView(parent), Transform2D, Anchor);
