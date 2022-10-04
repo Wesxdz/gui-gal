@@ -151,9 +151,12 @@ ECS_COMPONENT_DECLARE(NineSlice);
 
 typedef struct
 {
+    vec4 bounds;
     ecs_entity_t actionIndicators[4];
-} Selected;
-ECS_COMPONENT_DECLARE(Selected);
+} SelectionBounds;
+ECS_COMPONENT_DECLARE(SelectionBounds);
+
+ECS_TAG_DECLARE(Selected);
 
 ECS_TAG_DECLARE(Grabbed);
 ECS_TAG_DECLARE(DragHover);
@@ -224,7 +227,6 @@ typedef struct {
     int op;
     vec2 screenOffset;
     ecs_entity_t symbol;
-    NVGcolor color;
 } CircleActionIndicator;
 ECS_COMPONENT_DECLARE(CircleActionIndicator);
 

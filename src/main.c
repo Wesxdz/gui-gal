@@ -728,6 +728,7 @@ void LoadDroppedFiles(ecs_iter_t* it)
     for (int i = 0; i < drop->count; i++)
     {
         VisualSymbolCreated vsc = load_visual_symbol(it->world, drop->paths[i], x + cursor_world_pos[0], y + cursor_world_pos[1], place);
+        printf("Create visual symbol\n");
         // ecs_get is not available right away, I would like to understand why this is more
         // const Texture2D* texture = ecs_get(it->world, entity, Texture2D);
         
@@ -1475,7 +1476,7 @@ void UpdateCursorAction(ecs_iter_t* it)
     EventMouseMotion* event = ecs_term(it, EventMouseMotion, 2);
     CircleActionIndicator* indicator = ecs_term(it, CircleActionIndicator, 3);
     Transform2D* transform = ecs_term(it, Transform2D, 4);
-    Texture2D* texture = ecs_term(it, Texture2D, 5);
+    SelectionBounds* selection = ecs_term(it, SelectionBounds, 5);
 
     vec2 worldPos;
     screen_to_world(camera->view, event->pos, worldPos);
@@ -1483,10 +1484,10 @@ void UpdateCursorAction(ecs_iter_t* it)
     for (int32_t i = 0; i < it->count; i++)
     {
         vec2 transformScreenPos;
-        world_to_screen(camera->view, transform[i].pos, transformScreenPos);
-        glm_vec2_add(transformScreenPos, indicator[i].screenOffset, transformScreenPos);
+        // world_to_screen(camera->view, transform[i].pos, transformScreenPos);
+        // glm_vec2_add(transformScreenPos, indicator[i].screenOffset, transform[i].pos);
         vec2 transformWorldPos;
-        screen_to_world(camera->view, transformScreenPos, transformWorldPos);
+        screen_to_world(camera->view, transform[i].pos, transformWorldPos);
         c2Circle c = indicator[i].bounds;
         c.p.x = transformWorldPos[0];
         c.p.y = transformWorldPos[1];
@@ -1497,7 +1498,7 @@ void UpdateCursorAction(ecs_iter_t* it)
         {
             GLFWcursor* cursor = glfwCreateStandardCursor(indicator[i].cursorType);
             glfwSetCursor(window, cursor);
-            ecs_set(it->world, input, ActionOnMouseInput, {false, indicator->symbol, indicator[i].op, {transform[i].pos[0], transform[i].pos[1]}, {texture->scale[0], texture->scale[1]}});
+            ecs_set(it->world, input, ActionOnMouseInput, {false, indicator->symbol, indicator[i].op, {transform[i].pos[0], transform[i].pos[1]}, {1.0, 1.0}});
         }
     }
 }
@@ -1521,33 +1522,29 @@ void LoadPaintedImage(ecs_iter_t* it)
     }
 }
 
-void select_visual_symbol(ecs_world_t* world, ecs_entity_t* entity)
+void SetupSelectionBoundsActions(ecs_iter_t* it)
 {
-    Texture2D* selected = ecs_get(world, entity, Texture2D);
+    SelectionBounds* selection = ecs_term(it, SelectionBounds, 1);
+
     ecs_entity_t indicators[4];
     const int cursorTypes[4] = {GLFW_RESIZE_NWSE_CURSOR, GLFW_RESIZE_NESW_CURSOR, GLFW_RESIZE_NWSE_CURSOR, GLFW_RESIZE_NESW_CURSOR};
-    const c2v coords[4] = {{0, 0}, {selected->width, 0}, {selected->width, selected->height}, {0, selected->height}};
+    const c2v coords[4] = {{0, 0}, {0, 0}, {0, 0}, {0, 0}};
     vec2 screenOffsets[4] = {{-6, -6}, {6, -6}, {6, 6}, {-6, 6}};
     vec2 anchors[4] = {{0.0, 0.0}, {1.0, 0.0}, {1.0, 1.0}, {0.0, 1.0}};
     for (size_t i = 0; i < 4; i++)
     {
         indicators[i] = ecs_new_id(world);
         c2Circle bounds = {coords[i], 6};
-        size_t b = c2Min((size_t)coords[i].x, selected->width - 1) * 4 + (c2Min((size_t)coords[i].y, selected->height - 1) * selected->pow_w * 4);
-	    b = 0;
-	    // printf("(%d, %d)\n", selected->width, selected->height);
-	    // b = (selected->width - 1) * 4 + (selected->height - 1) * selected->width;
-	    SDL_LockSurface(selected->img);
-	    unsigned char* pixels = (unsigned char*) selected->img->pixels;
-	    NVGcolor color = nvgRGBA(pixels[b], pixels[b + 1], pixels[b + 2], 255);
-	    SDL_UnlockSurface(selected->img);
-        ecs_set(world, indicators[i], CircleActionIndicator, {bounds, cursorTypes[i], i, {screenOffsets[i][0], screenOffsets[i][1]}, entity, color});
+        ecs_set(world, indicators[i], CircleActionIndicator, {bounds, cursorTypes[i], i, {screenOffsets[i][0], screenOffsets[i][1]}, it->entities[0]});
         ecs_add(world, indicators[i], Transform2D);
-        // ecs_set(world, indicators[i], Local2D, {coords[i].x, coords[i].y});
         ecs_set(world, indicators[i], Anchor, {anchors[i][0], anchors[i][1]});
-        ecs_add_pair(world, indicators[i], EcsChildOf, entity);
+        ecs_add_pair(world, indicators[i], EcsChildOf, it->entities[0]);
     }
-    ecs_set(world, entity, Selected, {indicators});
+}
+
+void select_visual_symbol(ecs_world_t* world, ecs_entity_t* entity)
+{
+    ecs_add(world, entity, Selected);
 }
 
 void SaveProjectShortcut(ecs_iter_t* it)
@@ -1595,18 +1592,19 @@ void save_project_to_file(ecs_world_t* save_world, const char* save_file)
 
 void AnchorPropagate(ecs_iter_t* it)
 {
-    Transform2D* parent = ecs_term(it, Transform2D, 1);
-    Texture2D* texture = ecs_term(it, Texture2D, 2);
-    Transform2D* transform = ecs_term(it, Transform2D, 4);
-    Anchor* anchor = ecs_term(it, Anchor, 5);
+    SelectionBounds* selection = ecs_term(it, SelectionBounds, 1);
+    Transform2D* transform = ecs_term(it, Transform2D, 2);
+    Anchor* anchor = ecs_term(it, Anchor, 3);
 
-    if (parent)
+    float width = selection->bounds[2] - selection->bounds[0];
+    float height = selection->bounds[3] - selection->bounds[1];
+    if (selection)
     {
         // printf("Let's go %d!\n", it->count);
         for (int32_t i = 0; i < it->count; i++)
         {
-            transform[i].pos[0] = parent->pos[0] + anchor[i].horizontal * texture->width / texture->scale[0];
-            transform[i].pos[1] = parent->pos[1] + anchor[i].vertical * texture->height / texture->scale[1];
+            transform[i].pos[0] = selection->bounds[0] + anchor[i].horizontal * width;
+            transform[i].pos[1] = selection->bounds[1] + anchor[i].vertical * height;
         }
     }
 }
@@ -1856,6 +1854,7 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
     Camera* camera = ecs_term(it, Camera, 1);
     EventMouseButton* event = ecs_term(it, EventMouseButton, 2);
     InteractionState* interaction = ecs_term(it, InteractionState, 3);
+    SelectionBounds* selection = ecs_term(it, SelectionBounds, 4);
     // ActionOnMouseInput* mouseInputAction = ecs_term(it, ActionOnMouseInput, 4);
 
     DragSelector* selector = NULL;
@@ -2184,7 +2183,7 @@ void RenderSelectionIndicators(ecs_iter_t* it)
     Transform2D* transform = ecs_term(it, Transform2D, 3);
     Texture2D* texture = ecs_term(it, Texture2D, 4);
     TextureView* tv = ecs_term(it, TextureView, 5);
-    vec4 bounds;
+    SelectionBounds* selection = ecs_term(it, SelectionBounds, 7);
 
     for (int32_t i = 0; i < it->count; i++)
     {
@@ -2212,15 +2211,15 @@ void RenderSelectionIndicators(ecs_iter_t* it)
         
         if (i == 0)
         {
-            bounds[0] = upperLeft[0];
-            bounds[1] = upperLeft[1];
-            bounds[2] = lowerRight[0];
-            bounds[3] = lowerRight[1];
+            selection->bounds[0] = upperLeft[0];
+            selection->bounds[1] = upperLeft[1];
+            selection->bounds[2] = lowerRight[0];
+            selection->bounds[3] = lowerRight[1];
         }
-        bounds[0] = c2Min(bounds[0], upperLeft[0]);
-        bounds[1] = c2Min(bounds[1], upperLeft[1]);
-        bounds[2] = c2Max(bounds[2], lowerRight[0]);
-        bounds[3] = c2Max(bounds[3], lowerRight[1]);
+        selection->bounds[0] = c2Min(selection->bounds[0], upperLeft[0]);
+        selection->bounds[1] = c2Min(selection->bounds[1], upperLeft[1]);
+        selection->bounds[2] = c2Max(selection->bounds[2], lowerRight[0]);
+        selection->bounds[3] = c2Max(selection->bounds[3], lowerRight[1]);
 
         // nvgRect(nano->vg, upperLeft[0] - radius, upperLeft[1] - radius, 1, h + radius*2);
         // nvgRect(nano->vg, upperLeft[0] - radius, upperLeft[1] - radius, w + radius*2, 1);
@@ -2239,7 +2238,7 @@ void RenderSelectionIndicators(ecs_iter_t* it)
         // nvgRect(nano->vg, lowerLeft[0] - radius - 1, lowerLeft[1] + radius, 3, -h/4 - radius*2);
         // nvgRect(nano->vg, lowerLeft[0] - radius, lowerLeft[1] + radius - 1, w/4 + radius*2, 3);
     }
-    nvgRect(nano->vg, bounds[0], bounds[1], bounds[2] - bounds[0], bounds[3] - bounds[1]);
+    nvgRect(nano->vg, selection->bounds[0], selection->bounds[1], selection->bounds[2] - selection->bounds[0], selection->bounds[3] - selection->bounds[1]);
     nvgStrokeColor(nano->vg, nvgRGBA(157, 3, 252,255));
     nvgStroke(nano->vg);
     // nvgFillColor(nano->vg, nvgRGBA(157, 3, 252,255));
@@ -2367,60 +2366,42 @@ void RenderActionIndicators(ecs_iter_t* it)
 {
     NanoVG* nano = ecs_term(it, NanoVG, 1);
     Camera* camera = ecs_term(it, Camera, 2);
-    Transform2D* transform = ecs_term(it, Transform2D, 3);
-    CircleActionIndicator* indicator = ecs_term(it, CircleActionIndicator, 4);
+    SelectionBounds* selection = ecs_term(it, SelectionBounds, 3);
+    Transform2D* transform = ecs_term(it, Transform2D, 4);
+    CircleActionIndicator* indicator = ecs_term(it, CircleActionIndicator, 5);
 
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glEnable(GL_CULL_FACE);
-    glDisable(GL_DEPTH_TEST);
-
-    float radius = 6;
-
-    for (int32_t i = 0; i < it->count; i++)
+    int selectedSymbolCount = 0;
+    ecs_query_t* query = ecs_query_new(world, "Selected");
+    ecs_iter_t qIt = ecs_query_iter(it->world, query);
+    while (ecs_query_next(&qIt))
     {
-        nvgBeginPath(nano->vg);
-        vec2 screenPos;
-        world_to_screen(camera->view, transform[i].pos, screenPos);
-
-        // nvgCircle(nano->vg, screenPos[0] + indicator[i].screenOffset[0], screenPos[1] + indicator[i].screenOffset[1], radius + 1);
-        NVGcolor inverted = nvgRGBAf(1.0 - indicator[i].color.r, 1.0 - indicator[i].color.g, 1.0 - indicator[i].color.b, 1.0);
-        float avg = (inverted.r + inverted.g + inverted.b)/3;
-        NVGcolor greyscale = nvgRGBAf(avg, avg, avg, 1.0);
-
-        float indAvg = (indicator->color.r + indicator->color.g + indicator->color.b)/3;
-        bool invertOutline = indAvg > avg;
-
-        if (invertOutline)
-        {
-            nvgFillColor(nano->vg, indicator[i].color);
-        }
-        else
-        {
-            nvgFillColor(nano->vg, greyscale);
-        }
-        nvgFill(nano->vg);
-        nvgClosePath(nano->vg);
-
-        nvgBeginPath(nano->vg);
-        // nvgCircle(nano->vg, screenPos[0] + indicator[i].screenOffset[0], screenPos[1] + indicator[i].screenOffset[1], radius);
-        // nvgPathWinding(nano->vg, NVG_HOLE);
-        nvgCircle(nano->vg, screenPos[0] + indicator[i].screenOffset[0], screenPos[1] + indicator[i].screenOffset[1], radius);
-        if (invertOutline)
-        {
-            nvgFillColor(nano->vg, greyscale);
-        }
-        else
-        {
-            nvgFillColor(nano->vg, indicator[i].color);
-        }
-        nvgFillColor(nano->vg, nvgRGBA(157, 3, 252,255));
-        nvgFill(nano->vg);
-
-        nvgClosePath(nano->vg);
+        selectedSymbolCount += qIt.count;
     }
-    // glEnable(GL_DEPTH_TEST);
-    glDisable(GL_CULL_FACE);
+
+    if (selectedSymbolCount > 0)
+    {
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glEnable(GL_CULL_FACE);
+        glDisable(GL_DEPTH_TEST);
+
+        float radius = 6;
+
+        for (int32_t i = 0; i < it->count; i++)
+        {
+            nvgBeginPath(nano->vg);
+            // vec2 screenPos;
+            // world_to_screen(camera->view, transform[i].pos, screenPos);
+            nvgBeginPath(nano->vg);
+            nvgCircle(nano->vg, transform[i].pos[0] + indicator[i].screenOffset[0], transform[i].pos[1] + indicator[i].screenOffset[1], radius);
+            nvgFillColor(nano->vg, nvgRGBA(157, 3, 252,255));
+            nvgFill(nano->vg);
+
+            nvgClosePath(nano->vg);
+        }
+        glDisable(GL_CULL_FACE);
+    }
+
 }
 
 double lastXPos, lastYPos;
@@ -2474,7 +2455,6 @@ int main(int argc, char const *argv[])
     ECS_COMPONENT_DEFINE(world, EventKey);
     ECS_COMPONENT_DEFINE(world, NanoVG);
     ECS_COMPONENT_DEFINE(world, CircleActionIndicator);
-    ECS_COMPONENT_DEFINE(world, Selected);
     ECS_COMPONENT_DEFINE(world, Local2D);
     ECS_COMPONENT_DEFINE(world, ActionOnMouseInput);
     ECS_COMPONENT_DEFINE(world, Anchor);
@@ -2485,7 +2465,9 @@ int main(int argc, char const *argv[])
     ECS_COMPONENT_DEFINE(world, EventSavePaintIntersection);
     ECS_COMPONENT_DEFINE(world, InteractionState);
     ECS_COMPONENT_DEFINE(world, TextureView);
+    ECS_COMPONENT_DEFINE(world, SelectionBounds);
     typedef enum SelectMode SelectMode;
+    ECS_TAG_DEFINE(world, Selected);
     ECS_TAG_DEFINE(world, Grabbed);
     ECS_TAG_DEFINE(world, DragHover);
     ECS_TAG_DEFINE(world, TakeSnapshot);
@@ -2505,6 +2487,9 @@ int main(int argc, char const *argv[])
     ECS_OBSERVER(world, deallocate_texture, EcsOnRemove, Texture2D);
     ECS_OBSERVER(world, ApparateVisualSymbols, EcsOnSet, BrowseDirectory, SavedData, [inout] *());
     ECS_OBSERVER(world, SetupNanoVG, EcsOnSet, NanoVG);
+    
+    ECS_OBSERVER(world, SetupSelectionBoundsActions, EcsOnAdd, SelectionBounds);
+    ecs_add(world, input, SelectionBounds);
 
     IMG_Init(IMG_INIT_JPG | IMG_INIT_PNG | IMG_INIT_WEBP);
     glfwInit();
@@ -2570,7 +2555,7 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, GrabMoveCamera, EcsPreUpdate, Camera(renderer), EventMouseMotion(input));
     ECS_SYSTEM(world, ScrollZoomCamera, EcsPreUpdate, Camera(renderer), EventScroll(input));
     ECS_SYSTEM(world, CameraCalculateView, EcsOnUpdate, Camera);
-    ECS_SYSTEM(world, SelectVisualSymbolQuery, EcsPreUpdate, Camera(renderer), EventMouseButton(input), InteractionState(input), !ActionOnMouseInput(input), [inout] *());
+    ECS_SYSTEM(world, SelectVisualSymbolQuery, EcsPreUpdate, Camera(renderer), EventMouseButton(input), InteractionState(input), SelectionBounds(input), !ActionOnMouseInput(input), [inout] *());
     ECS_SYSTEM(world, OpenSymbolPath, EcsPreUpdate, Camera(renderer), EventMouseButton(input), !ActionOnMouseInput(input), [inout] *());
     ECS_SYSTEM(world, MoveGrabbedTransforms, EcsPreFrame, Camera(renderer), EventMouseMotion(input), Transform2D, Grabbed);
     ECS_SYSTEM(world, ConsumeEvents, EcsPostFrame, (ConsumeEvent, *));
@@ -2591,16 +2576,18 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, GenerateImages, EcsPostUpdate, PaintFrame(AI_painter));
 
     // TODO: Upgrade to Flecs 3.0, ?TextureView(parent) is never matched, why???
-    ECS_SYSTEM(world, AnchorPropagate, EcsPreUpdate, ?Transform2D(parent|cascade), Texture2D(parent), !TextureView(parent), Transform2D, Anchor);
-    ECS_SYSTEM(world, AnchorPropagatePartial, EcsPreUpdate, ?Transform2D(parent|cascade), Texture2D(parent), TextureView(parent), Transform2D, Anchor);
+    ECS_SYSTEM(world, AnchorPropagate, EcsPreUpdate, SelectionBounds(parent), Transform2D, Anchor);
 
-    ECS_SYSTEM(world, RenderActionIndicators, EcsPostUpdate, NanoVG(renderer), Camera(renderer), Transform2D, CircleActionIndicator);
+    // ECS_SYSTEM(world, AnchorPropagate, EcsPreUpdate, ?Transform2D(parent|cascade), Texture2D(parent), !TextureView(parent), Transform2D, Anchor);
+    // ECS_SYSTEM(world, AnchorPropagatePartial, EcsPreUpdate, ?Transform2D(parent|cascade), Texture2D(parent), TextureView(parent), Transform2D, Anchor);
+
+    ECS_SYSTEM(world, RenderActionIndicators, EcsPostUpdate, NanoVG(renderer), Camera(renderer), SelectionBounds(input), Transform2D, CircleActionIndicator);
     // ECS_SYSTEM(world, RenderImageSelectionIndicators, EcsPostUpdate, Camera(renderer), BatchSpriteRenderer(renderer), Transform2D, Texture2D, Selected);
-    ECS_SYSTEM(world, RenderSelectionIndicators, EcsPostUpdate, NanoVG(renderer), Camera(renderer), Transform2D, Texture2D, ?TextureView, Selected);
+    ECS_SYSTEM(world, RenderSelectionIndicators, EcsPostUpdate, NanoVG(renderer), Camera(renderer), Transform2D, Texture2D, ?TextureView, Selected, SelectionBounds(input), [inout] *());
 
     ECS_SYSTEM(world, RenderDragSelector, EcsPostUpdate, NanoVG(renderer), DragSelector(input), InteractionState(input));
     ECS_SYSTEM(world, LoadClipboardFiles, EcsOnUpdate, EventMouseButton(input));
-    ECS_SYSTEM(world, UpdateCursorAction, EcsOnUpdate, Camera(renderer), EventMouseMotion(input), CircleActionIndicator, Transform2D, Texture2D(parent), !ActionOnMouseInput(input));
+    ECS_SYSTEM(world, UpdateCursorAction, EcsOnUpdate, Camera(renderer), EventMouseMotion(input), CircleActionIndicator, Transform2D, SelectionBounds(parent), !ActionOnMouseInput(input));
     ECS_SYSTEM(world, TransformCascadeHierarchy, EcsPreFrame, ?Transform2D(parent|cascade), Transform2D, Local2D);
 // PARENT:Transform2D,
     ECS_SYSTEM(world, MouseStartAction, EcsOnUpdate, EventMouseButton, ActionOnMouseInput);
