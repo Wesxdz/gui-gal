@@ -40,6 +40,14 @@ ECS_COMPONENT_DECLARE(Transform2D);
 
 typedef struct
 {
+    vec2 pos;
+    float scale;
+} Transform2DRef;
+ECS_COMPONENT_DECLARE(Transform2DRef);
+
+
+typedef struct
+{
     float width, height;
 } BoundingBox;
 // TODO: Bounding volumes
