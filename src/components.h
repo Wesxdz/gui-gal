@@ -27,7 +27,7 @@ typedef struct
 {
     vec2 pos;
 } Local2D;
-ECS_DECLARE_COMPONENT(Local2D);
+ECS_COMPONENT_DECLARE(Local2D);
 
 typedef struct
 {
@@ -156,15 +156,17 @@ typedef struct
 } SelectionBounds;
 ECS_COMPONENT_DECLARE(SelectionBounds);
 
-ECS_TAG_DECLARE(Selected);
-
-ECS_TAG_DECLARE(Grabbed);
-ECS_TAG_DECLARE(DragHover);
-ECS_TAG_DECLARE(TakeSnapshot);
-ECS_TAG_DECLARE(SnapshotTarget);
+ECS_DECLARE(Selected);
+ECS_DECLARE(Grabbed);
+ECS_DECLARE(DragHover);
+ECS_DECLARE(TakeSnapshot);
+ECS_DECLARE(SnapshotTarget);
+ECS_DECLARE(BrowseDirectory);
+// ECS_DECLARE(ConsumeEvent);
 
 // Input
 typedef struct {
+    bool what;
 } ConsumeEvent;
 ECS_COMPONENT_DECLARE(ConsumeEvent);
 
@@ -235,7 +237,7 @@ typedef struct {
     ecs_entity_t symbol;
     int op;
     vec2 origin;
-    vec2 startScale;
+    vec2 startSize;
 } ActionOnMouseInput;
 ECS_COMPONENT_DECLARE(ActionOnMouseInput);
 
@@ -268,5 +270,3 @@ typedef struct
     // TODO: Format?
 } SavedData;
 ECS_COMPONENT_DECLARE(SavedData);
-
-ECS_TAG_DECLARE(BrowseDirectory);

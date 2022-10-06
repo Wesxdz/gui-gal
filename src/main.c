@@ -2,6 +2,8 @@
 #include <GLFW/glfw3.h>
 #include <stdio.h>
 #include "flecs.h"
+#include "flecs/addons/meta.h"
+#include "flecs/addons/json.h"
 #include <SDL2/SDL_image.h>
 #include <string.h>
 #include <gif_lib.h>
@@ -150,7 +152,7 @@ Shader create_shader(const char* name)
 void SetupCamera(ecs_iter_t* it)
 {
     printf("Setup camera\n");
-    Camera* camera = ecs_term(it, Camera, 1);
+    Camera* camera = ecs_field(it, Camera, 1);
     mat4 view;
     vec3 eye = {0.0f, 0.0f, 0.0};
     vec3 center = {0.0, 0.0, -1.0};
@@ -160,14 +162,14 @@ void SetupCamera(ecs_iter_t* it)
 
 void SetupNanoVG(ecs_iter_t* it)
 {
-    NanoVG* nano = ecs_term(it, NanoVG, 1);
+    NanoVG* nano = ecs_field(it, NanoVG, 1);
     nvgCreateFont(nano->vg, "sans", "../res/Roboto-Regular.ttf");
     nvgCreateFont(nano->vg, "sans_bold", "../res/Roboto-Bold.ttf");
 }
 
 void SetupBatchRenderer(ecs_iter_t* it)
 {
-    BatchSpriteRenderer* renderer = ecs_term(it, BatchSpriteRenderer, 1);
+    BatchSpriteRenderer* renderer = ecs_field(it, BatchSpriteRenderer, 1);
 
     renderer->shader = create_shader("quad");
     // configure VAO/VBO
@@ -207,9 +209,9 @@ ecs_entity_t AI_painter;
 
 void AnimateGif(ecs_iter_t* it)
 {
-    GifAnimator* animator = ecs_term(it, GifAnimator, 1);
-    Texture2D* texture = ecs_term(it, Texture2D, 2);
-    MultiTexture2D* multitexture = ecs_term(it, MultiTexture2D, 3);
+    GifAnimator* animator = ecs_field(it, GifAnimator, 1);
+    Texture2D* texture = ecs_field(it, Texture2D, 2);
+    MultiTexture2D* multitexture = ecs_field(it, MultiTexture2D, 3);
     for (int i = 0; i < it->count; i++)
     {
         animator[i].progress += it->delta_time;
@@ -233,11 +235,11 @@ void AnimateGif(ecs_iter_t* it)
 void RenderSprites(ecs_iter_t* it)
 {
     // printf("%d sprite(s)\n", it->count);
-    Camera* camera = ecs_term(it, Camera, 1);
-    BatchSpriteRenderer* renderer = ecs_term(it, BatchSpriteRenderer, 2);
-    Transform2D* transform = ecs_term(it, Transform2D, 3);
-    Texture2D* texture = ecs_term(it, Texture2D, 4);
-    TextureView* tv = ecs_term(it, TextureView, 5);
+    Camera* camera = ecs_field(it, Camera, 1);
+    BatchSpriteRenderer* renderer = ecs_field(it, BatchSpriteRenderer, 2);
+    Transform2D* transform = ecs_field(it, Transform2D, 3);
+    Texture2D* texture = ecs_field(it, Texture2D, 4);
+    TextureView* tv = ecs_field(it, TextureView, 5);
     // printf("Use shader %d\n", renderer->shader.programId);
     glUseProgram(renderer->shader.programId);
     glUniformMatrix4fv(glGetUniformLocation(renderer->shader.programId, "view"), 1, false, camera->view[0]);
@@ -250,7 +252,6 @@ void RenderSprites(ecs_iter_t* it)
     glUniformMatrix4fv(glGetUniformLocation(renderer->shader.programId, "projection"), 1, false, proj[0]);
     for (int i = 0; i < it->count; i++)
     {
-        // printf("Rendering sprite %f\n", it->world_time);
         mat4 model;
         glm_mat4_identity(model);
         vec3 offset = {transform[i].pos[0], transform[i].pos[1], 0.0f};
@@ -283,7 +284,7 @@ void RenderSprites(ecs_iter_t* it)
 
 void deallocate_texture(ecs_iter_t* it)
 {
-    Texture2D* texture = ecs_term(it, Texture2D, 1);
+    Texture2D* texture = ecs_field(it, Texture2D, 1);
     glDeleteTextures(1, &texture->id);
 }
 
@@ -600,8 +601,8 @@ void create_multitexture_from_gif(ecs_world_t* s_world, GifFileType* gif, ecs_en
 void SetInitialMultitexture(ecs_iter_t* it)
 {
     printf("Set initial multitexture!\n");
-    Texture2D* texture = ecs_term(it, Texture2D, 1);
-    MultiTexture2D* multitexture = ecs_term(it, MultiTexture2D, 2);
+    Texture2D* texture = ecs_field(it, Texture2D, 1);
+    MultiTexture2D* multitexture = ecs_field(it, MultiTexture2D, 2);
     texture->id = multitexture->ids[0];
 }
 
@@ -613,7 +614,7 @@ void window_size_callback(GLFWwindow* window, int width, int height)
 
 void LoadClipboardFiles(ecs_iter_t* it)
 {
-    EventMouseButton* event = ecs_term(it, EventMouseButton, 1);
+    EventMouseButton* event = ecs_field(it, EventMouseButton, 1);
     const char* clipboard = glfwGetClipboardString(window);
 }
 typedef struct
@@ -707,15 +708,16 @@ VisualSymbolCreated load_visual_symbol(ecs_world_t* s_world, char* path, float x
 
 void LoadDroppedFiles(ecs_iter_t* it)
 {
-    EventDropFiles* drop = ecs_term(it, EventDropFiles, 1);
-    Camera* camera = ecs_term(it, Camera, 2);
+    EventDropFiles* drop = ecs_field(it, EventDropFiles, 1);
+    Camera* camera = ecs_field(it, Camera, 2);
     double xpos, ypos;
     glfwGetCursorPos(window, &xpos, &ypos);
     vec2 cursor_screen_pos = {xpos, ypos};
     vec2 cursor_world_pos;
     screen_to_world(camera->view, cursor_screen_pos, cursor_world_pos);
     printf("Load dropped files\n");
-    float x, y = 0;
+    float x = 0.0f;
+    float y = 0.0f;
     Anchor place = {0, 0};
     if (drop->count == 1)
     {
@@ -774,7 +776,7 @@ void drag_callback(GLFWwindow* window, int entered)
 
 void RenderDragHover(ecs_iter_t* it)
 {
-    NanoVG* nano = ecs_term(it, NanoVG, 1);
+    NanoVG* nano = ecs_field(it, NanoVG, 1);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_CULL_FACE);
@@ -799,19 +801,18 @@ void RenderDragHover(ecs_iter_t* it)
 
 void ConsumeEvents(ecs_iter_t* it)
 {
-    ecs_entity_t pair = ecs_term_id(it, 1);
+    ecs_entity_t pair = ecs_field_id(it, 1);
     ecs_entity_t comp = ecs_pair_object(it->world, pair);
     for (int32_t i = 0; i < it->count; i++)
     {
         ecs_remove_id(it->world, it->entities[i], comp);
         ecs_remove_id(it->world, it->entities[i], pair);
-        // printf("Consume event at %f\n", it->world_time);
     }
 }
 
 void DeleteSelected(ecs_iter_t* it)
 {
-  EventKey* event = ecs_term(it, EventKey, 1);
+  EventKey* event = ecs_field(it, EventKey, 1);
   ecs_defer_begin(it->world);
   if (event->key == GLFW_KEY_DELETE && event->action == GLFW_PRESS) {
     for (int32_t i = 0; i < it->count; i++)
@@ -856,7 +857,7 @@ void calc_view(Camera* camera)
 
 void CameraCalculateView(ecs_iter_t* it)
 {
-    Camera* camera = ecs_term(it, Camera, 1);
+    Camera* camera = ecs_field(it, Camera, 1);
     for (int32_t i = 0; i < it->count; i++)
     {
         calc_view(&camera[i]);
@@ -888,7 +889,7 @@ void undo_command(ecs_world_t* world, CommandBuffer* buffer)
 void UndoCommand(ecs_iter_t* it)
 {
     printf("Undo command!\n");
-    EventKey* event = ecs_term(it, EventKey, 1);
+    EventKey* event = ecs_field(it, EventKey, 1);
     if (event->key == GLFW_KEY_Z && event->mods & GLFW_MOD_CONTROL && event->action == GLFW_PRESS)
     {
         buffer.time_step--;
@@ -897,9 +898,9 @@ void UndoCommand(ecs_iter_t* it)
 
 void MoveGrabbedTransforms(ecs_iter_t* it)
 {
-    Camera* camera = ecs_term(it, Camera, 1);
-    EventMouseMotion* motion = ecs_term(it, EventMouseMotion, 2);
-    Transform2D* transform = ecs_term(it, Transform2D, 3);
+    Camera* camera = ecs_field(it, Camera, 1);
+    EventMouseMotion* motion = ecs_field(it, EventMouseMotion, 2);
+    Transform2D* transform = ecs_field(it, Transform2D, 3);
 
     for (int32_t i = 0; i < it->count; i++)
     {
@@ -917,8 +918,8 @@ void MoveGrabbedTransforms(ecs_iter_t* it)
 
 void GrabMoveCamera(ecs_iter_t* it)
 {
-    Camera* camera = ecs_term(it, Camera, 1);
-    EventMouseMotion* motion = ecs_term(it, EventMouseMotion, 2);
+    Camera* camera = ecs_field(it, Camera, 1);
+    EventMouseMotion* motion = ecs_field(it, EventMouseMotion, 2);
     int state = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE);
     if (state == GLFW_PRESS)
     {
@@ -928,7 +929,7 @@ void GrabMoveCamera(ecs_iter_t* it)
 
 void UnGrab(ecs_iter_t* it)
 {
-    EventMouseButton* mouse = ecs_term(it, EventMouseButton, 1);
+    EventMouseButton* mouse = ecs_field(it, EventMouseButton, 1);
 
     if (mouse->button == GLFW_MOUSE_BUTTON_LEFT && mouse->action == GLFW_RELEASE)
     {
@@ -943,9 +944,9 @@ void UnGrab(ecs_iter_t* it)
 
 void RenderDragSelector(ecs_iter_t* it)
 {
-    NanoVG* nano = ecs_term(it, NanoVG, 1);
-    DragSelector* selector = ecs_term(it, DragSelector, 2);
-    InteractionState* interaction = ecs_term(it, InteractionState, 3);
+    NanoVG* nano = ecs_field(it, NanoVG, 1);
+    DragSelector* selector = ecs_field(it, DragSelector, 2);
+    InteractionState* interaction = ecs_field(it, InteractionState, 3);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_CULL_FACE);
@@ -985,7 +986,7 @@ void RenderDragSelector(ecs_iter_t* it)
 
 void RenderImageName(ecs_iter_t* it)
 {
-    NanoVG* nano = ecs_term(it, NanoVG, 1);
+    NanoVG* nano = ecs_field(it, NanoVG, 1);
     // nvgFontSize(nano->vg, 32.0f);
     // nvgFontFace(nano->vg, "sans");
     // nvgBeginPath(nano->vg);
@@ -1002,10 +1003,10 @@ void RenderImageName(ecs_iter_t* it)
 
 void RenderPaintFrame(ecs_iter_t* it)
 {
-    NanoVG* nano = ecs_term(it, NanoVG, 1);
-    Camera* camera = ecs_term(it, Camera, 2);
-    Transform2D* transform = ecs_term(it, Transform2D, 3);
-    PaintFrame* frame = ecs_term(it, PaintFrame, 4);
+    NanoVG* nano = ecs_field(it, NanoVG, 1);
+    Camera* camera = ecs_field(it, Camera, 2);
+    Transform2D* transform = ecs_field(it, Transform2D, 3);
+    PaintFrame* frame = ecs_field(it, PaintFrame, 4);
 
     NVGcolor modeColors[3] = {nvgRGBA(0, 255, 195,255), nvgRGBA(172,40,201,255), nvgRGBA(255,68,0,255)};
 
@@ -1055,12 +1056,13 @@ void RenderPaintFrame(ecs_iter_t* it)
 
 void MoveDragSelector(ecs_iter_t* it)
 {
-    DragSelector* selector = ecs_term(it, DragSelector, 1);
-    EventMouseMotion* event = ecs_term(it, EventMouseMotion, 2);
-    Camera* camera = ecs_term(it, Camera, 3);
+    DragSelector* selector = ecs_field(it, DragSelector, 1);
+    EventMouseMotion* event = ecs_field(it, EventMouseMotion, 2);
+    Camera* camera = ecs_field(it, Camera, 3);
 
     selector->w = event->pos[0] - selector->x;
     selector->h = event->pos[1] - selector->y;
+    printf("Selector %f, %f\n", selector->w, selector->h);
     ecs_defer_begin(it->world);
     select_dragged(it, selector, camera);
     ecs_defer_end(it->world);
@@ -1069,15 +1071,15 @@ void MoveDragSelector(ecs_iter_t* it)
 
 void ScaleVisualSymbol(ecs_iter_t* it)
 {
-    EventMouseButton* event = ecs_term(it, EventMouseButton, 1);
-    Transform2D* transform = ecs_term(it, Transform2D, 2);
-    Texture2D* texture = ecs_term(it, Texture2D, 3);
+    EventMouseButton* event = ecs_field(it, EventMouseButton, 1);
+    Transform2D* transform = ecs_field(it, Transform2D, 2);
+    Texture2D* texture = ecs_field(it, Texture2D, 3);
 }
 
 void MouseStartAction(ecs_iter_t* it)
 {
-    EventMouseButton* event = ecs_term(it, EventMouseButton, 1);
-    ActionOnMouseInput* action = ecs_term(it, ActionOnMouseInput, 2);
+    EventMouseButton* event = ecs_field(it, EventMouseButton, 1);
+    ActionOnMouseInput* action = ecs_field(it, ActionOnMouseInput, 2);
 
     if (event->action == GLFW_PRESS && event->button == GLFW_MOUSE_BUTTON_LEFT)
     {
@@ -1088,139 +1090,172 @@ void MouseStartAction(ecs_iter_t* it)
 
 void MouseAffectAction(ecs_iter_t* it)
 {
-    EventMouseMotion* event = ecs_term(it, EventMouseMotion, 1);
-    ActionOnMouseInput* action = ecs_term(it, ActionOnMouseInput, 2);
-    Camera* camera = ecs_term(it, Camera, 3);
-    Transform2D* transform = ecs_term(it, Transform2D, 4);
-    Texture2D* texture = ecs_term(it, Texture2D, 5);
-    TextureView* tv = ecs_term(it, TextureView, 6);
+    EventMouseMotion* event = ecs_field(it, EventMouseMotion, 1);
+    ActionOnMouseInput* action = ecs_field(it, ActionOnMouseInput, 2);
+    Camera* camera = ecs_field(it, Camera, 3);
+    SelectionBounds* selection = ecs_field(it, SelectionBounds, 4);
 
-    for (int32_t i = 0; i < it->count; i++)
-    {
-        if (it->entities[i] == action->symbol)
-        {
-            vec2 cursorWorldPos;
-            screen_to_world(camera->view, event->pos, cursorWorldPos);
-            vec2 diff;
-            // printf("Action origin is (%f, %f)\n", action->origin[0], action->origin[1]);
+    // vec2 eventDiff = {event->pos[0] - action->origin[0], event->pos[1] - action->origin[1]};
+    // float percentScale = 1.0f - c2Min(eventDiff[0]/action->startSize[0], eventDiff[1]/action->startSize[1]); /// TODO: Relative to opposite
+    // printf("Scale percent is %f\n", percentScale);
     
-            if (ecs_term_is_set(it, 6))
+    vec2 cursorWorldPos;
+    screen_to_world(camera->view, event->pos, cursorWorldPos);
+    vec2 actionOriginWorldPos;
+    screen_to_world(camera->view, action->origin, actionOriginWorldPos);
+    vec2 diff;
+    glm_vec2_sub(cursorWorldPos, actionOriginWorldPos, diff);
+    printf("Diff is (%f, %f)\n", diff[0], diff[1]);
+    vec2 ratio = {1.0f + diff[0]/action->startSize[0], 1.0f + diff[1]/action->startSize[1]};
+    printf("Action start size is %f, %f\n", action->startSize[0], action->startSize[1]);
+
+    float greater = c2Max(1.0/ratio[0], 1.0/ratio[1]);
+
+    // TODO: Get from mouse to action origin
+    // Use that to determine a scale, assuming constant ratio
+    // Reposition and scale all selected visual symbols relative to the diff change
+
+    ecs_query_t* query = ecs_query_new(world, "Transform2D, Texture2D, ?TextureView, Selected");
+    ecs_iter_t qIt = ecs_query_iter(it->world, query);
+    while (ecs_query_next(&qIt))
+    {
+        Transform2D* transform = ecs_field(&qIt, Transform2D, 1);
+        Texture2D* texture = ecs_field(&qIt, Texture2D, 2);
+        TextureView* tv = ecs_field(&qIt, TextureView, 3);
+        for (int i = 0; i < qIt.count; i++)
+        {
+            if (action->op == SCALE_LOWER_RIGHT)
             {
-                float cropped_width = (tv[i].bounds.max.x - tv[i].bounds.min.x);
-                float cropped_height = (tv[i].bounds.max.y - tv[i].bounds.min.y);
-                float start_x = transform[i].pos[0] + tv[i].bounds.min.x/action->startScale[0];
-                float start_y = transform[i].pos[1] + tv[i].bounds.min.y/action->startScale[1];
-                vec2 startPos = {start_x, start_y};
-                if (action->op == SCALE_LOWER_RIGHT)
-                {
-                    vec2 upperLeft;
-                    upperLeft[0] = action->origin[0] - cropped_width/action->startScale[0];
-                    upperLeft[1] = action->origin[1] - cropped_height/action->startScale[1];
-                    glm_vec2_sub(cursorWorldPos, upperLeft, diff);
-                    printf("Diff is (%f, %f)\n", diff[0], diff[1]);
-                    vec2 ratio = {diff[0]/cropped_width, diff[1]/cropped_height};
-                    float greater = c2Max(1.0/ratio[0], 1.0/ratio[1]);
-                    texture[i].scale[0] = greater;
-                    texture[i].scale[1] = greater;
-                    transform[i].pos[0] = upperLeft[0] - tv[i].bounds.min.x/greater;
-                    transform[i].pos[1] = upperLeft[1] - tv[i].bounds.min.y/greater;
-                }
-                else if (action->op == SCALE_LOWER_LEFT)
-                {
-                    vec2 upperRight;
-                    upperRight[0] = action->origin[0] + cropped_width/action->startScale[0];
-                    upperRight[1] = action->origin[1] - cropped_height/action->startScale[1];
-                    glm_vec2_sub(cursorWorldPos, upperRight, diff);
-                    vec2 ratio = {diff[0]/-cropped_width, diff[1]/cropped_height};
-                    float greater = c2Max(1.0/ratio[0], 1.0/ratio[1]);
-                    texture[i].scale[0] = greater;
-                    texture[i].scale[1] = greater;
-                    transform[i].pos[0] = upperRight[0] - tv[i].bounds.max.x/greater;
-                    transform[i].pos[1] = upperRight[1] - tv[i].bounds.min.y/greater;
-                }
-                else if (action->op == SCALE_UPPER_RIGHT)
-                {
-                    vec2 lowerLeft;
-                    lowerLeft[0] = action->origin[0] - cropped_width/action->startScale[0];
-                    lowerLeft[1] = action->origin[1] + cropped_height/action->startScale[1];
-                    glm_vec2_sub(cursorWorldPos, lowerLeft, diff);
-                    vec2 ratio = {diff[0]/-cropped_width, diff[1]/-cropped_height};
-                    float greater = c2Max(1.0/ratio[0], 1.0/ratio[1]);
-                    texture[i].scale[0] = greater;
-                    texture[i].scale[1] = greater;
-                    transform[i].pos[0] = lowerLeft[0] - tv[i].bounds.min.x/greater;
-                    transform[i].pos[1] = lowerLeft[1] - tv[i].bounds.max.y/greater;
-                }
-                else if (action->op == SCALE_UPPER_LEFT)
-                {
-                    vec2 lowerRight;
-                    lowerRight[0] = action->origin[0] + cropped_width/action->startScale[0];
-                    lowerRight[1] = action->origin[1] + cropped_height/action->startScale[1];
-                    glm_vec2_sub(cursorWorldPos, lowerRight, diff);
-                    vec2 ratio = {diff[0]/cropped_width, diff[1]/-cropped_height};
-                    float greater = c2Max(1.0/ratio[0], 1.0/ratio[1]);
-                    texture[i].scale[0] = greater;
-                    texture[i].scale[1] = greater;
-                    transform[i].pos[0] = lowerRight[0] - tv[i].bounds.max.x/greater;
-                    transform[i].pos[1] = lowerRight[1] - tv[i].bounds.max.y/greater;
-                }
-            } else
-            {
-                if (action->op == SCALE_LOWER_RIGHT)
-                {
-                    glm_vec2_sub(cursorWorldPos, transform[i].pos, diff);
-                    vec2 ratio = {diff[0]/texture[i].width, diff[1]/texture[i].height};
-
-                    float greater = c2Max(1.0/ratio[0], 1.0/ratio[1]);
-                    texture[i].scale[0] = greater;
-                    texture[i].scale[1] = greater;
-                }
-                else if (action->op == SCALE_LOWER_LEFT)
-                {
-                    vec2 opposite = {action->origin[0] + texture[i].width/action->startScale[0], action->origin[1]};
-                    diff[0] = cursorWorldPos[0] - (opposite[0]);
-                    diff[1] = cursorWorldPos[1] - transform[i].pos[1];
-                    vec2 ratio = {diff[0]/texture[i].width, diff[1]/texture[i].height};
-
-                    float greater = c2Max(-1.0/ratio[0], 1.0/ratio[1]);
-                    texture[i].scale[0] = greater;
-                    texture[i].scale[1] = greater;
-                    transform[i].pos[0] = opposite[0] - texture[i].width/greater;
-                }
-                else if (action->op == SCALE_UPPER_RIGHT)
-                {
-                    vec2 opposite = {action->origin[0], action->origin[1] + texture[i].height/action->startScale[1]};
-                    diff[0] = cursorWorldPos[0] - transform[i].pos[0];
-                    diff[1] = cursorWorldPos[1] - opposite[1];
-                    vec2 ratio = {diff[0]/texture[i].width, diff[1]/texture[i].height};
-
-                    float greater = c2Max(1.0/ratio[0], 1.0/ratio[1]);
-                    texture[i].scale[0] = greater;
-                    texture[i].scale[1] = greater;
-                    transform[i].pos[1] = opposite[1] - texture[i].height/greater;
-                }
-                else if (action->op == SCALE_UPPER_LEFT)
-                {
-                    vec2 opposite = {action->origin[0] + texture[i].width/action->startScale[0], action->origin[1] + texture[i].height/action->startScale[1]};
-                    diff[0] = cursorWorldPos[0] - opposite[0];
-                    diff[1] = cursorWorldPos[1] - opposite[1];
-                    vec2 ratio = {-diff[0]/texture[i].width, -diff[1]/texture[i].height};
-
-                    float greater = c2Max(1.0/ratio[0], 1.0/ratio[1]);
-                    texture[i].scale[0] = greater;
-                    texture[i].scale[1] = greater;
-                    transform[i].pos[0] = opposite[0] - texture[i].width/greater;
-                    transform[i].pos[1] = opposite[1] - texture[i].height/greater;
-                }
+                texture[i].scale[0] = greater;
+                texture[i].scale[1] = greater;
+                // transform->pos[0] += frameDiff[0];
+                // transform->pos[1] += frameDiff[1];
+                // transform->scale = percentScale;
             }
         }
     }
+
+    // for (int32_t i = 0; i < it->count; i++)
+    
+        
+        // printf("Action origin is (%f, %f)\n", action->origin[0], action->origin[1]);
+
+        // if (ecs_field_is_set(it, 6))
+        // {
+        //     float cropped_width = (tv[i].bounds.max.x - tv[i].bounds.min.x);
+        //     float cropped_height = (tv[i].bounds.max.y - tv[i].bounds.min.y);
+        //     float start_x = transform[i].pos[0] + tv[i].bounds.min.x/action->startScale[0];
+        //     float start_y = transform[i].pos[1] + tv[i].bounds.min.y/action->startScale[1];
+        //     vec2 startPos = {start_x, start_y};
+        //     if (action->op == SCALE_LOWER_RIGHT)
+        //     {
+        //         vec2 upperLeft;
+        //         upperLeft[0] = action->origin[0] - cropped_width/action->startScale[0];
+        //         upperLeft[1] = action->origin[1] - cropped_height/action->startScale[1];
+        //         glm_vec2_sub(cursorWorldPos, upperLeft, diff);
+        //         printf("Diff is (%f, %f)\n", diff[0], diff[1]);
+        //         vec2 ratio = {diff[0]/cropped_width, diff[1]/cropped_height};
+        //         float greater = c2Max(1.0/ratio[0], 1.0/ratio[1]);
+        //         texture[i].scale[0] = greater;
+        //         texture[i].scale[1] = greater;
+        //         transform[i].pos[0] = upperLeft[0] - tv[i].bounds.min.x/greater;
+        //         transform[i].pos[1] = upperLeft[1] - tv[i].bounds.min.y/greater;
+        //     }
+        //     else if (action->op == SCALE_LOWER_LEFT)
+        //     {
+        //         vec2 upperRight;
+        //         upperRight[0] = action->origin[0] + cropped_width/action->startScale[0];
+        //         upperRight[1] = action->origin[1] - cropped_height/action->startScale[1];
+        //         glm_vec2_sub(cursorWorldPos, upperRight, diff);
+        //         vec2 ratio = {diff[0]/-cropped_width, diff[1]/cropped_height};
+        //         float greater = c2Max(1.0/ratio[0], 1.0/ratio[1]);
+        //         texture[i].scale[0] = greater;
+        //         texture[i].scale[1] = greater;
+        //         transform[i].pos[0] = upperRight[0] - tv[i].bounds.max.x/greater;
+        //         transform[i].pos[1] = upperRight[1] - tv[i].bounds.min.y/greater;
+        //     }
+        //     else if (action->op == SCALE_UPPER_RIGHT)
+        //     {
+        //         vec2 lowerLeft;
+        //         lowerLeft[0] = action->origin[0] - cropped_width/action->startScale[0];
+        //         lowerLeft[1] = action->origin[1] + cropped_height/action->startScale[1];
+        //         glm_vec2_sub(cursorWorldPos, lowerLeft, diff);
+        //         vec2 ratio = {diff[0]/-cropped_width, diff[1]/-cropped_height};
+        //         float greater = c2Max(1.0/ratio[0], 1.0/ratio[1]);
+        //         texture[i].scale[0] = greater;
+        //         texture[i].scale[1] = greater;
+        //         transform[i].pos[0] = lowerLeft[0] - tv[i].bounds.min.x/greater;
+        //         transform[i].pos[1] = lowerLeft[1] - tv[i].bounds.max.y/greater;
+        //     }
+        //     else if (action->op == SCALE_UPPER_LEFT)
+        //     {
+        //         vec2 lowerRight;
+        //         lowerRight[0] = action->origin[0] + cropped_width/action->startScale[0];
+        //         lowerRight[1] = action->origin[1] + cropped_height/action->startScale[1];
+        //         glm_vec2_sub(cursorWorldPos, lowerRight, diff);
+        //         vec2 ratio = {diff[0]/cropped_width, diff[1]/-cropped_height};
+        //         float greater = c2Max(1.0/ratio[0], 1.0/ratio[1]);
+        //         texture[i].scale[0] = greater;
+        //         texture[i].scale[1] = greater;
+        //         transform[i].pos[0] = lowerRight[0] - tv[i].bounds.max.x/greater;
+        //         transform[i].pos[1] = lowerRight[1] - tv[i].bounds.max.y/greater;
+        //     }
+        // } else
+        // {
+        //     if (action->op == SCALE_LOWER_RIGHT)
+        //     {
+        //         glm_vec2_sub(cursorWorldPos, transform[i].pos, diff);
+        //         vec2 ratio = {diff[0]/texture[i].width, diff[1]/texture[i].height};
+
+        //         float greater = c2Max(1.0/ratio[0], 1.0/ratio[1]);
+        //         texture[i].scale[0] = greater;
+        //         texture[i].scale[1] = greater;
+        //     }
+        //     else if (action->op == SCALE_LOWER_LEFT)
+        //     {
+        //         vec2 opposite = {action->origin[0] + texture[i].width/action->startScale[0], action->origin[1]};
+        //         diff[0] = cursorWorldPos[0] - (opposite[0]);
+        //         diff[1] = cursorWorldPos[1] - transform[i].pos[1];
+        //         vec2 ratio = {diff[0]/texture[i].width, diff[1]/texture[i].height};
+
+        //         float greater = c2Max(-1.0/ratio[0], 1.0/ratio[1]);
+        //         texture[i].scale[0] = greater;
+        //         texture[i].scale[1] = greater;
+        //         transform[i].pos[0] = opposite[0] - texture[i].width/greater;
+        //     }
+        //     else if (action->op == SCALE_UPPER_RIGHT)
+        //     {
+        //         vec2 opposite = {action->origin[0], action->origin[1] + texture[i].height/action->startScale[1]};
+        //         diff[0] = cursorWorldPos[0] - transform[i].pos[0];
+        //         diff[1] = cursorWorldPos[1] - opposite[1];
+        //         vec2 ratio = {diff[0]/texture[i].width, diff[1]/texture[i].height};
+
+        //         float greater = c2Max(1.0/ratio[0], 1.0/ratio[1]);
+        //         texture[i].scale[0] = greater;
+        //         texture[i].scale[1] = greater;
+        //         transform[i].pos[1] = opposite[1] - texture[i].height/greater;
+        //     }
+        //     else if (action->op == SCALE_UPPER_LEFT)
+        //     {
+        //         vec2 opposite = {action->origin[0] + texture[i].width/action->startScale[0], action->origin[1] + texture[i].height/action->startScale[1]};
+        //         diff[0] = cursorWorldPos[0] - opposite[0];
+        //         diff[1] = cursorWorldPos[1] - opposite[1];
+        //         vec2 ratio = {-diff[0]/texture[i].width, -diff[1]/texture[i].height};
+
+        //         float greater = c2Max(1.0/ratio[0], 1.0/ratio[1]);
+        //         texture[i].scale[0] = greater;
+        //         texture[i].scale[1] = greater;
+        //         transform[i].pos[0] = opposite[0] - texture[i].width/greater;
+        //         transform[i].pos[1] = opposite[1] - texture[i].height/greater;
+        //     }
+        // }
+    // }
 }
 
 void TypePaintPrompt(ecs_iter_t* it)
 {
-    PaintFrame* paint = ecs_term(it, PaintFrame, 1);
-    EventCharEntry* charEntry = ecs_term(it, EventCharEntry, 2);
+    PaintFrame* paint = ecs_field(it, PaintFrame, 1);
+    EventCharEntry* charEntry = ecs_field(it, EventCharEntry, 2);
     
     // printf("Type paint prompt {%c}\n", charEntry->codepoint);
     printf("%c\n",charEntry->codepoint);
@@ -1370,7 +1405,7 @@ void image_gen_completed(ecs_iter_t* it, void* data)
 
 void UpdatePromptFromSpeech(ecs_iter_t* it)
 {
-    PaintFrame* paint = ecs_term(it, PaintFrame, 1);
+    PaintFrame* paint = ecs_field(it, PaintFrame, 1);
     // int locked = pthread_mutex_trylock(&mutex_stt);
     // if (!locked)
     // {
@@ -1382,7 +1417,7 @@ void UpdatePromptFromSpeech(ecs_iter_t* it)
 
 void CheckThreadComplete(ecs_iter_t* it)
 {
-    WaitThreadComplete* wait = ecs_term(it, WaitThreadComplete, 1);
+    WaitThreadComplete* wait = ecs_field(it, WaitThreadComplete, 1);
     int locked = pthread_mutex_trylock(wait->mutex);
     // printf("Is thread locked? %i\n", locked);
     if (!locked)
@@ -1401,8 +1436,8 @@ void CheckThreadComplete(ecs_iter_t* it)
 
 void BackspacePaintPrompt(ecs_iter_t* it)
 {
-    PaintFrame* paint = ecs_term(it, PaintFrame, 1);
-    EventKey* key = ecs_term(it, EventKey, 2);
+    PaintFrame* paint = ecs_field(it, PaintFrame, 1);
+    EventKey* key = ecs_field(it, EventKey, 2);
     size_t prompt_len = strlen(paint->prompt);
     if (key->action == GLFW_PRESS && key->key == GLFW_KEY_V && key->mods & GLFW_MOD_CONTROL)
     {
@@ -1424,7 +1459,7 @@ void BackspacePaintPrompt(ecs_iter_t* it)
 
 void GenerateImages(ecs_iter_t* it)
 {
-    PaintFrame* paint = ecs_term(it, PaintFrame, 1);
+    PaintFrame* paint = ecs_field(it, PaintFrame, 1);
     if (paint->run_endless)
     {
         if (!is_creating_image)
@@ -1441,8 +1476,8 @@ void GenerateImages(ecs_iter_t* it)
 
 void MouseEndAction(ecs_iter_t* it)
 {
-    EventMouseButton* event = ecs_term(it, EventMouseButton, 1);
-    ActionOnMouseInput* action = ecs_term(it, ActionOnMouseInput, 2);
+    EventMouseButton* event = ecs_field(it, EventMouseButton, 1);
+    ActionOnMouseInput* action = ecs_field(it, ActionOnMouseInput, 2);
 
     printf("Action %d", event->action);
     if (event->action == GLFW_RELEASE)
@@ -1454,8 +1489,8 @@ void MouseEndAction(ecs_iter_t* it)
 
 void ChangeInteractionOnKeyPress(ecs_iter_t* it)
 {
-    EventKey* event = ecs_term(it, EventKey, 1);
-    InteractionState* interaction = ecs_term(it, InteractionState, 2);
+    EventKey* event = ecs_field(it, EventKey, 1);
+    InteractionState* interaction = ecs_field(it, InteractionState, 2);
 
     if (event->key == GLFW_KEY_C)
     {
@@ -1472,11 +1507,11 @@ void ChangeInteractionOnKeyPress(ecs_iter_t* it)
 
 void UpdateCursorAction(ecs_iter_t* it)
 {
-    Camera* camera = ecs_term(it, Camera, 1);
-    EventMouseMotion* event = ecs_term(it, EventMouseMotion, 2);
-    CircleActionIndicator* indicator = ecs_term(it, CircleActionIndicator, 3);
-    Transform2D* transform = ecs_term(it, Transform2D, 4);
-    SelectionBounds* selection = ecs_term(it, SelectionBounds, 5);
+    Camera* camera = ecs_field(it, Camera, 1);
+    EventMouseMotion* event = ecs_field(it, EventMouseMotion, 2);
+    CircleActionIndicator* indicator = ecs_field(it, CircleActionIndicator, 3);
+    Transform2D* transform = ecs_field(it, Transform2D, 4);
+    SelectionBounds* selection = ecs_field(it, SelectionBounds, 5);
 
     vec2 worldPos;
     screen_to_world(camera->view, event->pos, worldPos);
@@ -1498,14 +1533,14 @@ void UpdateCursorAction(ecs_iter_t* it)
         {
             GLFWcursor* cursor = glfwCreateStandardCursor(indicator[i].cursorType);
             glfwSetCursor(window, cursor);
-            ecs_set(it->world, input, ActionOnMouseInput, {false, indicator->symbol, indicator[i].op, {transform[i].pos[0], transform[i].pos[1]}, {1.0, 1.0}});
+            ecs_set(it->world, input, ActionOnMouseInput, {false, indicator->symbol, indicator[i].op, {transform[i].pos[0], transform[i].pos[1]}, {selection->bounds[2] - selection->bounds[0], selection->bounds[3] - selection->bounds[1]}});
         }
     }
 }
 
 void LoadPaintedImage(ecs_iter_t* it)
 {
-    // EventPaintLoad* paintLoad = ecs_term(it, EventPaintLoad, 1);
+    // EventPaintLoad* paintLoad = ecs_field(it, EventPaintLoad, 1);
     int locked = pthread_mutex_trylock(&mutex_image_loader);
     if (locked)
     {
@@ -1524,12 +1559,13 @@ void LoadPaintedImage(ecs_iter_t* it)
 
 void SetupSelectionBoundsActions(ecs_iter_t* it)
 {
-    SelectionBounds* selection = ecs_term(it, SelectionBounds, 1);
+    SelectionBounds* selection = ecs_field(it, SelectionBounds, 1);
 
     ecs_entity_t indicators[4];
     const int cursorTypes[4] = {GLFW_RESIZE_NWSE_CURSOR, GLFW_RESIZE_NESW_CURSOR, GLFW_RESIZE_NWSE_CURSOR, GLFW_RESIZE_NESW_CURSOR};
     const c2v coords[4] = {{0, 0}, {0, 0}, {0, 0}, {0, 0}};
-    vec2 screenOffsets[4] = {{-6, -6}, {6, -6}, {6, 6}, {-6, 6}};
+    // vec2 screenOffsets[4] = {{-6, -6}, {6, -6}, {6, 6}, {-6, 6}};
+    vec2 screenOffsets[4] = {{0, 0}, {0, 0}, {0, 0}, {0, 0}};
     vec2 anchors[4] = {{0.0, 0.0}, {1.0, 0.0}, {1.0, 1.0}, {0.0, 1.0}};
     for (size_t i = 0; i < 4; i++)
     {
@@ -1549,34 +1585,34 @@ void select_visual_symbol(ecs_world_t* world, ecs_entity_t* entity)
 
 void SaveProjectShortcut(ecs_iter_t* it)
 {
-    // EventKey* event = ecs_term(it, EventKey, 1);
-    // if (event->key == GLFW_KEY_S && event->mods & GLFW_MOD_CONTROL)
-    // {
-    //     printf("Save!\n");
-    //     ecs_entity_t t = ecs_struct_init(it->world, &(ecs_struct_desc_t) {
-    //         .entity.name = "T",
-    //         .members = {
-    //             "path", {ecs_id(ecs_string_t)}
-    //         }
-    //     });
-    //     ecs_query_t* query = ecs_query_new(world, "Transform2D, LocalFile");
-    //     ecs_iter_t qIt = ecs_query_iter(world, query);
+    EventKey* event = ecs_field(it, EventKey, 1);
+    if (event->key == GLFW_KEY_S && event->mods & GLFW_MOD_CONTROL)
+    {
+        printf("Save!\n");
+        // ecs_entity_t t = ecs_struct_init(it->world, &(ecs_struct_desc_t) {
+        //     .entity.name = "T",
+        //     .members = {
+        //         "path", {ecs_id(ecs_string_t)}
+        //     }
+        // });
+        ecs_query_t* query = ecs_query_new(world, "Transform2D, LocalFile");
+        ecs_iter_t qIt = ecs_query_iter(world, query);
 
-    //     size_t visualSymbolCount = 0;
-    //     while (ecs_query_next(&qIt))
-    //     {
-    //         Transform2D* transform = ecs_term(&qIt, Transform2D, 1);
-    //         LocalFile* file = ecs_term(&qIt, LocalFile, 2);
-    //         for (int32_t i = 0; i < qIt.count; i++)
-    //         {
-    //             printf("%s", file[i].path);
-    //             LocalFile value = {"Test"};
-    //             char *expr = ecs_ptr_to_json(qIt.world, t, &file[i]);
-    //             // char* expr = ecs_ptr_to_json(qIt.world, qIt.entities[i], &file[i]);
-    //             printf("%s\n", expr);
-    //         }
-    //     }
-    // }
+        size_t visualSymbolCount = 0;
+        while (ecs_query_next(&qIt))
+        {
+            Transform2D* transform = ecs_field(&qIt, Transform2D, 1);
+            LocalFile* file = ecs_field(&qIt, LocalFile, 2);
+            for (int32_t i = 0; i < qIt.count; i++)
+            {
+                printf("%s", file[i].path);
+                // LocalFile value = {"test"};
+                // char *expr = ecs_ptr_to_json(qIt.world, t, &file[i]);
+                // char* expr = ecs_ptr_to_json(qIt.world, ecs_id(LocalFile), &value);
+                // printf("%s\n", expr);
+            }
+        }
+    }
 }
 
 void save_project_to_file(ecs_world_t* save_world, const char* save_file)
@@ -1592,9 +1628,9 @@ void save_project_to_file(ecs_world_t* save_world, const char* save_file)
 
 void AnchorPropagate(ecs_iter_t* it)
 {
-    SelectionBounds* selection = ecs_term(it, SelectionBounds, 1);
-    Transform2D* transform = ecs_term(it, Transform2D, 2);
-    Anchor* anchor = ecs_term(it, Anchor, 3);
+    SelectionBounds* selection = ecs_field(it, SelectionBounds, 1);
+    Transform2D* transform = ecs_field(it, Transform2D, 2);
+    Anchor* anchor = ecs_field(it, Anchor, 3);
 
     float width = selection->bounds[2] - selection->bounds[0];
     float height = selection->bounds[3] - selection->bounds[1];
@@ -1611,11 +1647,11 @@ void AnchorPropagate(ecs_iter_t* it)
 
 void AnchorPropagatePartial(ecs_iter_t* it)
 {
-    Transform2D* parent = ecs_term(it, Transform2D, 1);
-    Texture2D* texture = ecs_term(it, Texture2D, 2);
-    TextureView* tv = ecs_term(it, TextureView, 3);
-    Transform2D* transform = ecs_term(it, Transform2D, 4);
-    Anchor* anchor = ecs_term(it, Anchor, 5);
+    Transform2D* parent = ecs_field(it, Transform2D, 1);
+    Texture2D* texture = ecs_field(it, Texture2D, 2);
+    TextureView* tv = ecs_field(it, TextureView, 3);
+    Transform2D* transform = ecs_field(it, Transform2D, 4);
+    Anchor* anchor = ecs_field(it, Anchor, 5);
 
     if (parent)
     {
@@ -1630,9 +1666,9 @@ void AnchorPropagatePartial(ecs_iter_t* it)
 
 void TransformCascadeHierarchy(ecs_iter_t* it)
 {
-    Transform2D* parent = ecs_term(it, Transform2D, 1);
-    Transform2D* transform = ecs_term(it, Transform2D, 2);
-    Local2D* local = ecs_term(it, Local2D, 3);
+    Transform2D* parent = ecs_field(it, Transform2D, 1);
+    Transform2D* transform = ecs_field(it, Transform2D, 2);
+    Local2D* local = ecs_field(it, Local2D, 3);
 
     if (!parent)
     {
@@ -1665,10 +1701,11 @@ void add_command_on_grab(ecs_iter_t* it, CommandBuffer* buffer)
 
 void OpenSymbolPath(ecs_iter_t* it)
 {
-    Camera* camera = ecs_term(it, Camera, 1);
-    EventMouseButton* event = ecs_term(it, EventMouseButton, 2);
+    Camera* camera = ecs_field(it, Camera, 1);
+    EventMouseButton* event = ecs_field(it, EventMouseButton, 2);
     if (event->action == GLFW_PRESS && event->button == GLFW_MOUSE_BUTTON_RIGHT)
     {
+        return; // TODO: Pass query in ctx...?
         printf("Open symbolPath\n");
         ecs_query_t* query = ecs_query_new(world, "Transform2D, Texture2D, LocalFile");
         ecs_iter_t qIt = ecs_query_iter(it->world, query);
@@ -1687,9 +1724,9 @@ void OpenSymbolPath(ecs_iter_t* it)
         screen_to_world(camera->view, screenPos, worldPos);
         while (ecs_query_next(&qIt))
         {
-            Transform2D* transform = ecs_term(&qIt, Transform2D, 1);
-            Texture2D* texture = ecs_term(&qIt, Texture2D, 2);
-            LocalFile* file = ecs_term(&qIt, LocalFile, 3);
+            Transform2D* transform = ecs_field(&qIt, Transform2D, 1);
+            Texture2D* texture = ecs_field(&qIt, Texture2D, 2);
+            LocalFile* file = ecs_field(&qIt, LocalFile, 3);
 
             for (int32_t i = 0; i < qIt.count; i++)
             {
@@ -1718,10 +1755,10 @@ void OpenSymbolPath(ecs_iter_t* it)
 
 void IndicateSavePaint(ecs_iter_t* it)
 {
-    PaintFrame* paint = ecs_term(it, PaintFrame, 1);
-    EventKey* event = ecs_term(it, EventKey, 2);
+    PaintFrame* paint = ecs_field(it, PaintFrame, 1);
+    EventKey* event = ecs_field(it, EventKey, 2);
 
-    if (event->key == GLFW_KEY_S && event->mods & GLFW_MOD_CONTROL)
+    if (event->key == GLFW_KEY_F && event->mods & GLFW_MOD_CONTROL)
     {
         printf("Save paint\n");
         ecs_set(it->world, AI_painter, EventSavePaintIntersection, {0});
@@ -1744,12 +1781,12 @@ void IndicateSavePaint(ecs_iter_t* it)
 void SavePaintFrameInput(ecs_iter_t* it)
 {
     // Could render window to texture and crop rect...
-    Transform2D* transform = ecs_term(it, Transform2D, 1);
-    Texture2D* texture = ecs_term(it, Texture2D, 2);
-    Camera* camera = ecs_term(it, Camera, 3);
-    PaintFrame* paint = ecs_term(it, PaintFrame, 4);
-    EventSavePaintIntersection* intersection = ecs_term(it, EventSavePaintIntersection, 5);
-    Transform2D* paintTransform = ecs_term(it, Transform2D, 6);
+    Transform2D* transform = ecs_field(it, Transform2D, 1);
+    Texture2D* texture = ecs_field(it, Texture2D, 2);
+    Camera* camera = ecs_field(it, Camera, 3);
+    PaintFrame* paint = ecs_field(it, PaintFrame, 4);
+    EventSavePaintIntersection* intersection = ecs_field(it, EventSavePaintIntersection, 5);
+    Transform2D* paintTransform = ecs_field(it, Transform2D, 6);
     printf("Save paint frame input!");
     // Save an image file with the visual symbols contained within a paint frame in a transparent image
     // void* pixels = malloc(paint->w * paint->h * 4);
@@ -1790,13 +1827,13 @@ void SavePaintFrameInput(ecs_iter_t* it)
 
 void select_dragged(ecs_iter_t* it, DragSelector* selector, Camera* camera)
 {
-    ecs_query_t* query = ecs_query_new(world, "Transform2D, Texture2D, ?TextureView"); // TODO: Store?
-    ecs_iter_t qIt = ecs_query_iter(it->world, query);
+    // ecs_query_t* query = ecs_query_new(world, "Transform2D, Texture2D, ?TextureView"); // TODO: Store?
+    ecs_iter_t qIt = ecs_query_iter(it->world, (ecs_query_t*)it->ctx);
     while (ecs_query_next(&qIt))
     {
-        Transform2D* transform = ecs_term(&qIt, Transform2D, 1);
-        Texture2D* texture = ecs_term(&qIt, Texture2D, 2);
-        TextureView* tv = ecs_term(&qIt, TextureView, 3);
+        Transform2D* transform = ecs_field(&qIt, Transform2D, 1);
+        Texture2D* texture = ecs_field(&qIt, Texture2D, 2);
+        TextureView* tv = ecs_field(&qIt, TextureView, 3);
 
         for (int32_t i = 0; i < qIt.count; i++)
         {
@@ -1812,7 +1849,7 @@ void select_dragged(ecs_iter_t* it, DragSelector* selector, Camera* camera)
             printf("Selector box is %f %f, %f, %f\n", selectorBox.min.x, selectorBox.min.y, selectorBox.max.x, selectorBox.max.y);
             c2AABB visualSymbolBounds = {{transform[i].pos[0], transform[i].pos[1]}, {transform[i].pos[0] + texture[i].width / texture[i].scale[0], transform[i].pos[1] + texture[i].height / texture[i].scale[0]}};
             c2AABB croppedVSB = visualSymbolBounds;
-            if (ecs_term_is_set(&qIt, 3))
+            if (ecs_field_is_set(&qIt, 3))
             {
                 printf("Query for view is set\n");
                 croppedVSB.min.x += tv[i].bounds.min.x/texture[i].scale[0];
@@ -1832,15 +1869,6 @@ void select_dragged(ecs_iter_t* it, DragSelector* selector, Camera* camera)
                 }
             } else if (isSelected) // deselect
             {
-                // ecs_term_iter is not correct! Need to use something else to create the iter
-                ecs_iter_t children = ecs_term_iter(it->world, &(ecs_term_t){.id = ecs_childof(qIt.entities[i])});
-                ecs_defer_begin(children.world);
-                while (ecs_term_next(&children)) {
-                    for (int c = 0; c < children.count; c++) {
-                        ecs_delete(children.world, children.entities[c]);
-                    }
-                }
-                ecs_defer_end(children.world);
                 ecs_remove(it->world, qIt.entities[i], Selected);
             }
         }
@@ -1851,24 +1879,25 @@ void select_dragged(ecs_iter_t* it, DragSelector* selector, Camera* camera)
 void SelectVisualSymbolQuery(ecs_iter_t* it)
 {
     // printf("Select visual symbol\n");
-    Camera* camera = ecs_term(it, Camera, 1);
-    EventMouseButton* event = ecs_term(it, EventMouseButton, 2);
-    InteractionState* interaction = ecs_term(it, InteractionState, 3);
-    SelectionBounds* selection = ecs_term(it, SelectionBounds, 4);
-    // ActionOnMouseInput* mouseInputAction = ecs_term(it, ActionOnMouseInput, 4);
+    Camera* camera = ecs_field(it, Camera, 1);
+    EventMouseButton* event = ecs_field(it, EventMouseButton, 2);
+    InteractionState* interaction = ecs_field(it, InteractionState, 3);
+    SelectionBounds* selection = ecs_field(it, SelectionBounds, 4);
+    // ActionOnMouseInput* mouseInputAction = ecs_field(it, ActionOnMouseInput, 4);
+
+    printf("Select visual symbol query!\n");
 
     DragSelector* selector = NULL;
     if (ecs_has(it->world, input, DragSelector))
     {
-        selector = ecs_get_mut(it->world, input, DragSelector, NULL);
+        selector = ecs_get_mut(it->world, input, DragSelector);
     };
     bool isDragSelected = selector != NULL;
 
     ecs_defer_begin(it->world);
     if (event->button == GLFW_MOUSE_BUTTON_LEFT)
     {
-        ecs_query_t* query = ecs_query_new(world, "Transform2D, Texture2D, ?TextureView"); // TODO: Store?
-        ecs_iter_t qIt = ecs_query_iter(it->world, query);
+        ecs_iter_t qIt = ecs_query_iter(it->world, (ecs_query_t*)it->ctx);
 
         size_t visualSymbolCount = 0;
         while (ecs_query_next(&qIt))
@@ -1879,15 +1908,15 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
         size_t curSelectedCount = 0;
         ecs_entity_t toSelectNodes[visualSymbolCount];
         size_t toSelectCount = 0;
-        qIt = ecs_query_iter(it->world, query);
+        qIt = ecs_query_iter(it->world, (ecs_query_t*)it->ctx);
 
         if (isDragSelected && event->action == GLFW_RELEASE)
         {
             while (ecs_query_next(&qIt))
             {
-                Transform2D* transform = ecs_term(&qIt, Transform2D, 1);
-                Texture2D* texture = ecs_term(&qIt, Texture2D, 2);
-                TextureView* tv = ecs_term(&qIt, TextureView, 3);
+                Transform2D* transform = ecs_field(&qIt, Transform2D, 1);
+                Texture2D* texture = ecs_field(&qIt, Texture2D, 2);
+                TextureView* tv = ecs_field(&qIt, TextureView, 3);
 
                 for (int32_t i = 0; i < qIt.count; i++)
                 {
@@ -1903,7 +1932,7 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
                     printf("Selector box is %f %f, %f, %f\n", selectorBox.min.x, selectorBox.min.y, selectorBox.max.x, selectorBox.max.y);
                     c2AABB visualSymbolBounds = {{transform[i].pos[0], transform[i].pos[1]}, {transform[i].pos[0] + texture[i].width / texture[i].scale[0], transform[i].pos[1] + texture[i].height / texture[i].scale[0]}};
                     c2AABB croppedVSB = visualSymbolBounds;
-                    if (ecs_term_is_set(&qIt, 3))
+                    if (ecs_field_is_set(&qIt, 3))
                     {
                         printf("Query for view is set\n");
                         croppedVSB.min.x += tv[i].bounds.min.x/texture[i].scale[0];
@@ -1937,7 +1966,6 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
         }
         if (event->action == GLFW_PRESS)
         {
-            printf("Select query start %f", it->world_time);
             double xpos, ypos;
             glfwGetCursorPos(event->window, &xpos, &ypos);
             vec2 screenPos = {xpos, ypos};
@@ -1951,9 +1979,9 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
             bool cropSelected = false;
             while (ecs_query_next(&qIt))
             {
-                Transform2D* transform = ecs_term(&qIt, Transform2D, 1);
-                Texture2D* texture = ecs_term(&qIt, Texture2D, 2);
-                TextureView* tv = ecs_term(&qIt, TextureView, 3);
+                Transform2D* transform = ecs_field(&qIt, Transform2D, 1);
+                Texture2D* texture = ecs_field(&qIt, Texture2D, 2);
+                TextureView* tv = ecs_field(&qIt, TextureView, 3);
 
                 if (right == GLFW_PRESS || left == GLFW_PRESS)
                 {
@@ -1969,7 +1997,7 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
                     }
                     c2AABB visualSymbolBounds = {{transform[i].pos[0], transform[i].pos[1]}, {transform[i].pos[0] + texture[i].width / texture[i].scale[0], transform[i].pos[1] + texture[i].height / texture[i].scale[0]}};
                     c2AABB croppedVSB = visualSymbolBounds;
-                    if (ecs_term_is_set(&qIt, 3))
+                    if (ecs_field_is_set(&qIt, 3))
                     {
                         printf("Query for view is set\n");
                         croppedVSB.min.x += tv[i].bounds.min.x/texture[i].scale[0];
@@ -2020,15 +2048,6 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
                     {
                         for (int32_t i = 0; i < curSelectedCount; i++)
                         {
-                            // ecs_term_iter is not correct! Need to use something else to create the iter
-                            ecs_iter_t children = ecs_term_iter(it->world, &(ecs_term_t){.id = ecs_childof(curSelectedNodes[i])});
-                            ecs_defer_begin(children.world);
-                            while (ecs_term_next(&children)) {
-                                for (int c = 0; c < children.count; c++) {
-                                    ecs_delete(children.world, children.entities[c]);
-                                }
-                            }
-                            ecs_defer_end(children.world);
                             ecs_remove(it->world, curSelectedNodes[i], Selected);
                         }
                     }
@@ -2044,7 +2063,6 @@ void SelectVisualSymbolQuery(ecs_iter_t* it)
                     }
                 }
             }
-            printf(", Select query end %f\n", it->world_time);
         }
 
     }
@@ -2099,8 +2117,8 @@ void register_components()
 
 void ScrollZoomCamera(ecs_iter_t* it)
 {
-    Camera* camera = ecs_term(it, Camera, 1);
-    EventScroll* scroll = ecs_term(it, EventScroll, 2);
+    Camera* camera = ecs_field(it, Camera, 1);
+    EventScroll* scroll = ecs_field(it, EventScroll, 2);
 
     // Keep cursor positioned on the same image pixel it was above
     double xpos, ypos;
@@ -2126,7 +2144,7 @@ void ScrollZoomCamera(ecs_iter_t* it)
 
 void StartNanoVGFrame(ecs_iter_t* it)
 {
-    NanoVG* nano = ecs_term(it, NanoVG, 1);
+    NanoVG* nano = ecs_field(it, NanoVG, 1);
     int winWidth, winHeight;
     int fbWidth, fbHeight;
     float pxRatio;
@@ -2139,7 +2157,7 @@ void StartNanoVGFrame(ecs_iter_t* it)
 
 void EndNanoVGFrame(ecs_iter_t* it)
 {
-    NanoVG* nano = ecs_term(it, NanoVG, 1);
+    NanoVG* nano = ecs_field(it, NanoVG, 1);
     nvgEndFrame(nano->vg);
 
     glEnable(GL_BLEND);
@@ -2161,7 +2179,7 @@ float interp(float a, float b, float p)
 
 void InterpolateCamera(ecs_iter_t* it)
 {
-    Camera* camera = ecs_term(it, Camera, 1);
+    Camera* camera = ecs_field(it, Camera, 1);
     float p = fmin(1.0, it->delta_time/camera->interpTime);
     camera->scale = interp(camera->scale, camera->targetScale, p);
     camera->pos[0] = interp(camera->pos[0], camera->targetPos[0], p);
@@ -2170,8 +2188,10 @@ void InterpolateCamera(ecs_iter_t* it)
 
 void RenderSelectionIndicators(ecs_iter_t* it)
 {
-    NanoVG* nano = ecs_term(it, NanoVG, 1);
-    Camera* camera = ecs_term(it, Camera, 2);
+    NanoVG* nano = ecs_field(it, NanoVG, 1);
+    Camera* camera = ecs_field(it, Camera, 2);
+    SelectionBounds* selection = ecs_field(it, SelectionBounds, 3);
+
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glEnable(GL_CULL_FACE);
@@ -2179,66 +2199,57 @@ void RenderSelectionIndicators(ecs_iter_t* it)
 
     nvgBeginPath(nano->vg);
     float radius = 6;
-
-    Transform2D* transform = ecs_term(it, Transform2D, 3);
-    Texture2D* texture = ecs_term(it, Texture2D, 4);
-    TextureView* tv = ecs_term(it, TextureView, 5);
-    SelectionBounds* selection = ecs_term(it, SelectionBounds, 7);
-
-    for (int32_t i = 0; i < it->count; i++)
+    
+    ecs_iter_t qIt = ecs_query_iter(it->world, (ecs_query_t*)it->ctx);
+    int s = 0;
+    while (ecs_query_next(&qIt))
     {
-        vec4 offsets = {0, 0, texture[i].width, texture[i].height};
-        if (ecs_term_is_set(it, 5))
+        Transform2D* transform = ecs_field(&qIt, Transform2D, 1);
+        Texture2D* texture = ecs_field(&qIt, Texture2D, 2);
+        TextureView* tv = ecs_field(&qIt, TextureView, 3);
+        for (int32_t i = 0; i < qIt.count; i++)
         {
-            offsets[0] = tv[i].bounds.min.x / texture[i].scale[0];
-            offsets[1] = tv[i].bounds.min.y / texture[i].scale[1];
-            offsets[2] = tv[i].bounds.max.x;
-            offsets[3] = tv[i].bounds.max.y;
+            vec4 offsets = {0, 0, texture[i].width, texture[i].height};
+            if (ecs_field_is_set(it, 4))
+            {
+                offsets[0] = tv[i].bounds.min.x / texture[i].scale[0];
+                offsets[1] = tv[i].bounds.min.y / texture[i].scale[1];
+                offsets[2] = tv[i].bounds.max.x;
+                offsets[3] = tv[i].bounds.max.y;
+            }
+            vec2 upperLeft = {transform[i].pos[0] + offsets[0], transform[i].pos[1] + offsets[1]};
+            world_to_screen(camera->view, upperLeft, upperLeft);
+            vec2 upperRight = {transform[i].pos[0] + c2Min(offsets[2], texture[i].width) / texture[i].scale[0], transform[i].pos[1] + offsets[1]};
+            world_to_screen(camera->view, upperRight, upperRight);
+            vec2 lowerLeft = {transform[i].pos[0] + offsets[0], transform[i].pos[1] + c2Min(texture[i].height, offsets[3]) / texture[i].scale[1]};
+            world_to_screen(camera->view, lowerLeft, lowerLeft);
+            vec2 lowerRight = {transform[i].pos[0] + c2Min(offsets[2], texture[i].width) / texture[i].scale[0], transform[i].pos[1] + c2Min(texture[i].height, offsets[3]) / texture[i].scale[1]};
+            world_to_screen(camera->view, lowerRight, lowerRight);
+
+            float w = upperRight[0] - upperLeft[0];
+            float h = lowerLeft[1] - upperLeft[1];
+
+            nvgRect(nano->vg, upperLeft[0], upperLeft[1], upperRight[0] - upperLeft[0], lowerRight[1] - upperRight[1]);
+            if (s == 0)
+            {
+                selection->bounds[0] = upperLeft[0];
+                selection->bounds[1] = upperLeft[1];
+                selection->bounds[2] = lowerRight[0];
+                selection->bounds[3] = lowerRight[1];
+            } else
+            {
+                selection->bounds[0] = c2Min(selection->bounds[0], upperLeft[0]);
+                selection->bounds[1] = c2Min(selection->bounds[1], upperLeft[1]);
+                selection->bounds[2] = c2Max(selection->bounds[2], lowerRight[0]);
+                selection->bounds[3] = c2Max(selection->bounds[3], lowerRight[1]);
+            }
+            s++;
         }
-        vec2 upperLeft = {transform[i].pos[0] + offsets[0], transform[i].pos[1] + offsets[1]};
-        world_to_screen(camera->view, upperLeft, upperLeft);
-        vec2 upperRight = {transform[i].pos[0] + c2Min(offsets[2], texture[i].width) / texture[i].scale[0], transform[i].pos[1] + offsets[1]};
-        world_to_screen(camera->view, upperRight, upperRight);
-        vec2 lowerLeft = {transform[i].pos[0] + offsets[0], transform[i].pos[1] + c2Min(texture[i].height, offsets[3]) / texture[i].scale[1]};
-        world_to_screen(camera->view, lowerLeft, lowerLeft);
-        vec2 lowerRight = {transform[i].pos[0] + c2Min(offsets[2], texture[i].width) / texture[i].scale[0], transform[i].pos[1] + c2Min(texture[i].height, offsets[3]) / texture[i].scale[1]};
-        world_to_screen(camera->view, lowerRight, lowerRight);
-
-        float w = upperRight[0] - upperLeft[0];
-        float h = lowerLeft[1] - upperLeft[1];
-
-        nvgRect(nano->vg, upperLeft[0], upperLeft[1], upperRight[0] - upperLeft[0], lowerRight[1] - upperRight[1]);
-        
-        if (i == 0)
-        {
-            selection->bounds[0] = upperLeft[0];
-            selection->bounds[1] = upperLeft[1];
-            selection->bounds[2] = lowerRight[0];
-            selection->bounds[3] = lowerRight[1];
-        }
-        selection->bounds[0] = c2Min(selection->bounds[0], upperLeft[0]);
-        selection->bounds[1] = c2Min(selection->bounds[1], upperLeft[1]);
-        selection->bounds[2] = c2Max(selection->bounds[2], lowerRight[0]);
-        selection->bounds[3] = c2Max(selection->bounds[3], lowerRight[1]);
-
-        // nvgRect(nano->vg, upperLeft[0] - radius, upperLeft[1] - radius, 1, h + radius*2);
-        // nvgRect(nano->vg, upperLeft[0] - radius, upperLeft[1] - radius, w + radius*2, 1);
-        // nvgRect(nano->vg, lowerRight[0] + radius, lowerRight[1] + radius, 1, -h - radius*2);
-        // nvgRect(nano->vg, lowerRight[0] + radius, lowerRight[1] + radius, -w - radius*2, 1);
-
-        // nvgRect(nano->vg, upperLeft[0] - radius - 1, upperLeft[1] - radius, 3, h/4 + radius*2);
-        // nvgRect(nano->vg, upperLeft[0] - radius, upperLeft[1] - radius - 1, w/4 + radius*2, 3);
-
-        // nvgRect(nano->vg, lowerRight[0] + radius - 1, lowerRight[1] + radius, 3, -h/4 - radius*2);
-        // nvgRect(nano->vg, lowerRight[0] + radius, lowerRight[1] + radius - 1, -w/4 - radius*2, 3);
-
-        // nvgRect(nano->vg, upperRight[0] + radius - 1, upperRight[1] - radius, 3, h/4 + radius*2);
-        // nvgRect(nano->vg, upperRight[0] + radius, upperRight[1] - radius - 1, -w/4 - radius*2, 3);
-
-        // nvgRect(nano->vg, lowerLeft[0] - radius - 1, lowerLeft[1] + radius, 3, -h/4 - radius*2);
-        // nvgRect(nano->vg, lowerLeft[0] - radius, lowerLeft[1] + radius - 1, w/4 + radius*2, 3);
     }
-    nvgRect(nano->vg, selection->bounds[0], selection->bounds[1], selection->bounds[2] - selection->bounds[0], selection->bounds[3] - selection->bounds[1]);
+    if (qIt.count > 0)
+    {
+        nvgRect(nano->vg, selection->bounds[0], selection->bounds[1], selection->bounds[2] - selection->bounds[0], selection->bounds[3] - selection->bounds[1]);
+    }
     nvgStrokeColor(nano->vg, nvgRGBA(157, 3, 252,255));
     nvgStroke(nano->vg);
     // nvgFillColor(nano->vg, nvgRGBA(157, 3, 252,255));
@@ -2246,63 +2257,6 @@ void RenderSelectionIndicators(ecs_iter_t* it)
     nvgClosePath(nano->vg);
     // glEnable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
-}
-
-void RenderImageSelectionIndicators(ecs_iter_t* it)
-{
-    Camera* camera = ecs_term(it, Camera, 1);
-    BatchSpriteRenderer* renderer = ecs_term(it, BatchSpriteRenderer, 2);
-    Transform2D* transform = ecs_term(it, Transform2D, 3);
-    Texture2D* texture = ecs_term(it, Texture2D, 4);
-
-    glUseProgram(renderer->shader.programId);
-    mat4 identity;
-    glm_mat4_identity(identity);
-    glUniformMatrix4fv(glGetUniformLocation(renderer->shader.programId, "view"), 1, false, identity);
-    mat4 proj;
-    int wwidth, wheight;
-    vec4 box = {0.0, 0.0, 1.0, 1.0};
-    glUniform4f(glGetUniformLocation(renderer->shader.programId, "box"), box[0], box[1], box[2], box[3]);
-    glfwGetWindowSize(window, &wwidth, &wheight);
-    glm_ortho(0.0, wwidth, wheight, 0.0, -1.0, 10.0, proj); // TODO: Window component
-    glUniformMatrix4fv(glGetUniformLocation(renderer->shader.programId, "projection"), 1, false, proj[0]);
-
-
-    for (int i = 0; i < it->count; i++)
-    {
-        const c2v coords[4] = {{0, 0}, {texture[i].width / texture[i].scale[0], 0}, {0, texture[i].height / texture[i].scale[1]}, {0, 0}};
-        vec2 screenOffsets[4] = {{0, -6}, {6, 0}, {0, 6}, {-6, 0}};
-        const c2v scales[4] = {{camera->scale / texture[i].scale[0], 1.0/texture[i].height}, {1.0/texture[i].width, camera->scale / texture[i].scale[1]}, {camera->scale / texture[i].scale[0], 1.0/texture[i].height}, {1.0/texture[i].width, camera->scale / texture[i].scale[1]}};
-        float widthRatio = texture[i].width/(float)texture[i].pow_w;
-        const vec4 boxes[4] = {{0.0, 0.0, 1.0, 1.0/texture[i].height},
-        {texture[i].width/(float)texture[i].pow_w - 1.0/texture[i].pow_w, 0.0, 1.0/texture[i].width, 1.0},
-        {0.0, texture[i].height/(float)texture[i].pow_h - 1.0/texture[i].pow_h, 1.0, 1.0/texture[i].height},
-        {0.0, 0.0, 1.0/texture[i].width, 1.0}};
-
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, texture[i].id);
-        glBindVertexArray(renderer->quadVAO);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, renderer->indexBuffer);
-        for (int e = 0; e < 4; e++)
-        {
-            mat4 model;
-            glm_mat4_identity(model);
-            vec2 offset = {transform[i].pos[0] + coords[e].x, transform[i].pos[1] + coords[e].y, 0.0f};
-            vec2 screen;
-            world_to_screen(camera->view, offset, screen);
-            glm_vec2_add(screen, screenOffsets[e], screen);
-            glm_translate(model, screen);
-            vec3 scale = {texture[i].pow_w  * scales[e].x, texture[i].pow_h * scales[e].y, 1.0};
-            glm_scale(model, scale);
-            glUniformMatrix4fv(glGetUniformLocation(renderer->shader.programId, "model"), 1, false, model[0]);
-            // vec4 box = {10.0, 0.0, texture->surface->w, texture->surface->h};
-            glUniform4f(glGetUniformLocation(renderer->shader.programId, "box"), boxes[e][0], boxes[e][1], boxes[e][2], boxes[e][3]);
-            glUniform2f(glGetUniformLocation(renderer->shader.programId, "scale"), 1.0, 1.0);
-            glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_BYTE, (void*) 0);
-        }
-        glBindVertexArray(0);
-        glBindTexture(GL_TEXTURE_2D, 0);
-    }
 }
 
 void ResetCursor(ecs_iter_t* it)
@@ -2334,7 +2288,7 @@ void ResetCursor(ecs_iter_t* it)
 
 void ApparateVisualSymbols(ecs_iter_t* it)
 {
-    SavedData* data = ecs_term(it, SavedData, 2);
+    SavedData* data = ecs_field(it, SavedData, 2);
     DIR* dir = opendir(data->path);
     struct dirent* next;
     char buf[FILENAME_MAX];
@@ -2364,16 +2318,16 @@ void ApparateVisualSymbols(ecs_iter_t* it)
 
 void RenderActionIndicators(ecs_iter_t* it)
 {
-    NanoVG* nano = ecs_term(it, NanoVG, 1);
-    Camera* camera = ecs_term(it, Camera, 2);
-    SelectionBounds* selection = ecs_term(it, SelectionBounds, 3);
-    Transform2D* transform = ecs_term(it, Transform2D, 4);
-    CircleActionIndicator* indicator = ecs_term(it, CircleActionIndicator, 5);
+    NanoVG* nano = ecs_field(it, NanoVG, 1);
+    Camera* camera = ecs_field(it, Camera, 2);
+    SelectionBounds* selection = ecs_field(it, SelectionBounds, 3);
+    Transform2D* transform = ecs_field(it, Transform2D, 4);
+    CircleActionIndicator* indicator = ecs_field(it, CircleActionIndicator, 5);
 
     int selectedSymbolCount = 0;
-    ecs_query_t* query = ecs_query_new(world, "Selected");
-    ecs_iter_t qIt = ecs_query_iter(it->world, query);
-    while (ecs_query_next(&qIt))
+    ecs_filter_t* filter = ecs_filter(it->world, {.terms={ecs_id(Selected)}});
+    ecs_iter_t qIt = ecs_filter_iter(it->world, filter);
+    while (ecs_filter_next(&qIt))
     {
         selectedSymbolCount += qIt.count;
     }
@@ -2390,13 +2344,9 @@ void RenderActionIndicators(ecs_iter_t* it)
         for (int32_t i = 0; i < it->count; i++)
         {
             nvgBeginPath(nano->vg);
-            // vec2 screenPos;
-            // world_to_screen(camera->view, transform[i].pos, screenPos);
-            nvgBeginPath(nano->vg);
             nvgCircle(nano->vg, transform[i].pos[0] + indicator[i].screenOffset[0], transform[i].pos[1] + indicator[i].screenOffset[1], radius);
             nvgFillColor(nano->vg, nvgRGBA(157, 3, 252,255));
             nvgFill(nano->vg);
-
             nvgClosePath(nano->vg);
         }
         glDisable(GL_CULL_FACE);
@@ -2411,7 +2361,8 @@ void cursor_position_callback(GLFWwindow* window, double xpos, double ypos)
     bool exists = ecs_has(world, input, EventMouseMotion);
     if (exists)
     {
-        EventMouseMotion* motion = ecs_get_mut(world, input, EventMouseMotion, NULL);
+        bool isAdded;
+        EventMouseMotion* motion = ecs_get_mut(world, input, EventMouseMotion);
         vec2 delta = {xpos - lastXPos, ypos - lastYPos};
         glm_vec2_add(motion->delta, delta, motion->delta);
     } else
@@ -2555,6 +2506,13 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, GrabMoveCamera, EcsPreUpdate, Camera(renderer), EventMouseMotion(input));
     ECS_SYSTEM(world, ScrollZoomCamera, EcsPreUpdate, Camera(renderer), EventScroll(input));
     ECS_SYSTEM(world, CameraCalculateView, EcsOnUpdate, Camera);
+    ecs_query_t* vsq = ecs_query_new(world, "Transform2D, Texture2D, ?TextureView");
+    ecs_system(world, { 
+        .entity = ecs_entity(world, { .name = "SelectVisualSymbolQuery", .add = {EcsPreUpdate} }), 
+        .query.filter.expr = "Camera(renderer), EventMouseButton(input), InteractionState(input), SelectionBounds(input), !ActionOnMouseInput(input), [inout] *()", 
+        .callback = SelectVisualSymbolQuery,
+        .ctx = vsq
+    });
     ECS_SYSTEM(world, SelectVisualSymbolQuery, EcsPreUpdate, Camera(renderer), EventMouseButton(input), InteractionState(input), SelectionBounds(input), !ActionOnMouseInput(input), [inout] *());
     ECS_SYSTEM(world, OpenSymbolPath, EcsPreUpdate, Camera(renderer), EventMouseButton(input), !ActionOnMouseInput(input), [inout] *());
     ECS_SYSTEM(world, MoveGrabbedTransforms, EcsPreFrame, Camera(renderer), EventMouseMotion(input), Transform2D, Grabbed);
@@ -2565,34 +2523,36 @@ int main(int argc, char const *argv[])
     ECS_SYSTEM(world, EndNanoVGFrame, EcsPostUpdate, NanoVG(renderer));
     ECS_SYSTEM(world, RenderDragHover, EcsPostUpdate, NanoVG(renderer), DragHover(input));
     ECS_SYSTEM(world, RenderPaintFrame, EcsPostUpdate, NanoVG(renderer), Camera(renderer), Transform2D(AI_painter), PaintFrame(AI_painter));
-    ECS_SYSTEM(world, MoveDragSelector, EcsPreFrame, DragSelector(input), EventMouseMotion(input), Camera(renderer));
+    ecs_system(world, { 
+        .entity = ecs_entity(world, { .name = "MoveDragSelector", .add = { ecs_dependson(EcsPreFrame) } }), 
+        .query.filter.expr = "DragSelector(input), EventMouseMotion(input), Camera(renderer)", 
+        .callback = MoveDragSelector,
+        .ctx = vsq
+    });
     ECS_SYSTEM(world, UndoCommand, EcsOnUpdate, EventKey(input));
     ECS_SYSTEM(world, SaveProjectShortcut, EcsPostUpdate, EventKey(input), [inout] *());
     ECS_SYSTEM(world, InterpolateCamera, EcsPostUpdate, Camera);
     ECS_SYSTEM(world, RenderImageName, EcsPostUpdate, NanoVG(renderer));
     ECS_SYSTEM(world, TypePaintPrompt, EcsPostUpdate, PaintFrame(AI_painter), EventCharEntry(input), [inout] *());
     ECS_SYSTEM(world, BackspacePaintPrompt, EcsPostUpdate, PaintFrame(AI_painter), EventKey(input), [inout] *());
-
     ECS_SYSTEM(world, GenerateImages, EcsPostUpdate, PaintFrame(AI_painter));
-
-    // TODO: Upgrade to Flecs 3.0, ?TextureView(parent) is never matched, why???
     ECS_SYSTEM(world, AnchorPropagate, EcsPreUpdate, SelectionBounds(parent), Transform2D, Anchor);
-
-    // ECS_SYSTEM(world, AnchorPropagate, EcsPreUpdate, ?Transform2D(parent|cascade), Texture2D(parent), !TextureView(parent), Transform2D, Anchor);
-    // ECS_SYSTEM(world, AnchorPropagatePartial, EcsPreUpdate, ?Transform2D(parent|cascade), Texture2D(parent), TextureView(parent), Transform2D, Anchor);
-
     ECS_SYSTEM(world, RenderActionIndicators, EcsPostUpdate, NanoVG(renderer), Camera(renderer), SelectionBounds(input), Transform2D, CircleActionIndicator);
-    // ECS_SYSTEM(world, RenderImageSelectionIndicators, EcsPostUpdate, Camera(renderer), BatchSpriteRenderer(renderer), Transform2D, Texture2D, Selected);
-    ECS_SYSTEM(world, RenderSelectionIndicators, EcsPostUpdate, NanoVG(renderer), Camera(renderer), Transform2D, Texture2D, ?TextureView, Selected, SelectionBounds(input), [inout] *());
-
+    ecs_query_t* svsq = ecs_query_new(world, "Transform2D, Texture2D, ?TextureView, Selected");
+    ecs_system(world, {
+        .entity = ecs_entity(world, { .name = "RenderSelectionIndicators", .add = { ecs_dependson(EcsPreFrame) } }), 
+        .query.filter.expr = "NanoVG(renderer), Camera(renderer), SelectionBounds(input), [inout] *()", 
+        .callback = RenderSelectionIndicators,
+        .ctx = svsq
+    });
+    // ECS_SYSTEM(world, RenderSelectionIndicators, EcsPostUpdate, NanoVG(renderer), Camera(renderer), SelectionBounds(input));
     ECS_SYSTEM(world, RenderDragSelector, EcsPostUpdate, NanoVG(renderer), DragSelector(input), InteractionState(input));
     ECS_SYSTEM(world, LoadClipboardFiles, EcsOnUpdate, EventMouseButton(input));
     ECS_SYSTEM(world, UpdateCursorAction, EcsOnUpdate, Camera(renderer), EventMouseMotion(input), CircleActionIndicator, Transform2D, SelectionBounds(parent), !ActionOnMouseInput(input));
     ECS_SYSTEM(world, TransformCascadeHierarchy, EcsPreFrame, ?Transform2D(parent|cascade), Transform2D, Local2D);
-// PARENT:Transform2D,
     ECS_SYSTEM(world, MouseStartAction, EcsOnUpdate, EventMouseButton, ActionOnMouseInput);
     ECS_SYSTEM(world, MouseEndAction, EcsPreFrame, EventMouseButton, ActionOnMouseInput);
-    ECS_SYSTEM(world, MouseAffectAction, EcsOnUpdate, EventMouseMotion(input), ActionOnMouseInput(input), Camera(renderer), Transform2D, Texture2D, ?TextureView);
+    ECS_SYSTEM(world, MouseAffectAction, EcsOnUpdate, EventMouseMotion(input), ActionOnMouseInput(input), Camera(renderer), SelectionBounds);
 
     ECS_SYSTEM(world, UpdatePromptFromSpeech, EcsOnUpdate, PaintFrame(AI_painter));
 
@@ -2603,24 +2563,24 @@ int main(int argc, char const *argv[])
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
         glfwPollEvents();
         ecs_progress(world, 0);
-        if (ecs_has(world, input, TakeSnapshot))
-        {
-            ecs_remove(world, input, TakeSnapshot);
-            // Create filter from just the grabbed transforms!
+        // if (ecs_has(world, input, TakeSnapshot))
+        // {
+        //     ecs_remove(world, input, TakeSnapshot);
+        //     // Create filter from just the grabbed transforms!
 
-            ecs_filter_t filter;
-            ecs_filter_init(world, &filter, &(ecs_filter_desc_t) {
-                .terms = {{ ecs_id(Selected) } }
-            });
-            ecs_iter_t change = ecs_filter_iter(world, &filter);
-            ecs_snapshot_t *s = ecs_snapshot_take_w_iter(&change, ecs_filter_next);
-            // ecs_snapshot_t *s = ecs_snapshot_take(world);
-            push_command(&buffer, s);
-        }
-        while (buffer.time_step < 0)
-        {
-            undo_command(world, &buffer);
-        }
+        //     // ecs_filter_t filter;
+        //     // ecs_filter_init(world, &filter, &(ecs_filter_desc_t) {
+        //     //     .terms = {{ ecs_id(Selected) } }
+        //     // });
+        //     // ecs_iter_t change = ecs_filter_iter(world, &filter);
+        //     // ecs_snapshot_t *s = ecs_snapshot_take_w_iter(&change, ecs_filter_next);
+        //     // ecs_snapshot_t *s = ecs_snapshot_take(world);
+        //     // push_command(&buffer, s);
+        // }
+        // while (buffer.time_step < 0)
+        // {
+        //     undo_command(world, &buffer);
+        // }
         glfwSwapBuffers(window);
     }
     glfwDestroyWindow(window);
