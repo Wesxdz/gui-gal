@@ -15,27 +15,16 @@
 >* I learned C++ and tried to write game engines from scratch, my game took too long to program.
 >* I learned Unity, Unreal, and Godot... I felt like my designs were distorted to standardize into these frameworks: preconceived geometric hierarchies and syntactical constraints about how paracosms should be expressed.
 
->I dream of better workflows, personalized interfaces co-evolved with AI friends, where scene graphs melt into the aether: replaced by contextual intent expression. 
+>I dream of better workflows, personalized interfaces co-evolved with AI, where scene graphs melt into the aether: replaced by contextual intent expression. 
 
 #### Roadmap
-* Symbol graph persistence (component and system module saving/loading, interoperable resource format import/export (like html or tiff))
-* Graphic file system query navigation
-* Stable diffusion outpainting
-* Integration with Flit's system loop builder
-* Continous learning recommendation CNN
-* Neural network physics simulation layer
-* Digital human of Gui
-* Image layout/packing algorithms
-* 3D image projection
-* Replace OpenGL renderer with Vulkan
-* Hot reload modified assets and code
-* Visual symbol eye candy (round corners, custom shader composition)
-* Game underlay UX (interacting with a distinct flecs world as a symbol, wearenotart demo)
-* Reverse engineer PureRef save format and create coverter
+* Continous learning recommendation reinforcement learning for rating/iterating multimodal AI generated content
 * libclang runtime (live component and system manipulation)
-* Video symbol
-* local speech recognition dep (silero-models)
-* local object detection search dep (probably Darknet YOLO or PyTorch)
-* IsItPixelArt (automate image scaling algorithm selection)
-* OpenSCAD IDE with raytracing visualization
-* Explore FPGA based neural architecture search function training
+* Experiment with using LLM with codegen for Flit's visual system loop builder
+* Replace OpenGL renderer with Vulkan
+* Integrate MuJoCo/neural networks for physics simulation
+* Digital human of Gui with realtime multimodal model
+* OpenSCAD with neuroevolution
+* FPGA based neural architecture search function training
+* VPT for task automation
+* AI generated game/game engine service
