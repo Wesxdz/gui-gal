@@ -1,5 +1,4 @@
 ### ***Gui Gal*** is my virtual companion for design, engineering, and roleplay.
-![](./res/img/example_0.gif)
 
 #### Values
 * Playful
@@ -18,7 +17,7 @@
 >I dream of better workflows, personalized interfaces co-evolved with AI, where scene graphs melt into the aether: replaced by contextual intent expression. 
 
 #### Roadmap
-* Continous learning recommendation reinforcement learning for rating/iterating multimodal AI generated content
+* Continuous learning recommendation reinforcement learning for rating/iterating multimodal AI generated content
 * libclang runtime (live component and system manipulation)
 * Experiment with using LLM with codegen for Flit's visual system loop builder
 * Replace OpenGL renderer with Vulkan
