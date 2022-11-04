@@ -23,10 +23,17 @@
 #include "nvgutil.h"
 #include <pthread.h>
 
+#define STB_RECT_PACK_IMPLEMENTATION
+#include "stb_rect_pack.h"
+
 #include "curl/curl.h"
 
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
+
+#include "sfd.h"
+
+static int imagesLoaded = 0;
 
 // flecs modules
 // #include "input.h"
@@ -206,6 +213,7 @@ CommandBuffer buffer;
 ecs_entity_t renderer;
 ecs_entity_t input;
 ecs_entity_t AI_painter;
+ecs_entity_t project_state;
 
 void AnimateGif(ecs_iter_t* it)
 {
@@ -334,7 +342,7 @@ unsigned nearest_pow2(int length)
     return pow(2,ceil(log(length)/log(2)));
 }
 
-bool create_texture(ecs_world_t* s_world, const char* file, ecs_entity_t entity, unsigned int* twidth, unsigned int* theight)
+bool create_texture(ecs_world_t* s_world, const char* file, ecs_entity_t entity, unsigned int* twidth, unsigned int* theight, float scale)
 {
     GLuint id;
     SDL_Surface* img = IMG_Load(file);
@@ -365,7 +373,7 @@ bool create_texture(ecs_world_t* s_world, const char* file, ecs_entity_t entity,
     glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     // SDL_FreeSurface(img);
     SDL_FreeSurface(img_rgba8888);
-    ecs_set(s_world, entity, Texture2D, {id, pow_w, pow_h, img->w, img->h, {1.0, 1.0}, img});
+    ecs_set(s_world, entity, Texture2D, {id, pow_w, pow_h, img->w, img->h, {scale, scale}, img});
     *twidth = img->w; *theight = img->h;
     return true;
 }
@@ -373,7 +381,7 @@ bool create_texture(ecs_world_t* s_world, const char* file, ecs_entity_t entity,
 void create_multitexture_from_gif(ecs_world_t* s_world, GifFileType* gif, ecs_entity_t entity, SDL_Surface** firstFrame)
 {
     GLuint* ids = malloc(sizeof(GLuint) * gif->ImageCount);
-    SavedImage* prevSaved = &gif->SavedImages[gif->ImageCount - 2];
+    SavedImage* prevSaved = &gif->SavedImages[c2Max(0, gif->ImageCount - 2)];
     GifImageDesc* prevDesc = &prevSaved->ImageDesc;
     ColorMapObject* prevColorMap = prevDesc->ColorMap ? prevDesc->ColorMap : gif->SColorMap;
     int bpp;
@@ -422,12 +430,18 @@ void create_multitexture_from_gif(ecs_world_t* s_world, GifFileType* gif, ecs_en
             */
             disposalMode = (saved->ExtensionBlocks->Bytes[0] & 0b00011100) >> 2;
             printf("Disposal method: %u\n", disposalMode);
+            if (disposalMode > 3)
+            {
+                disposalMode = 0;
+            }
             isTransparent = saved->ExtensionBlocks->Bytes[0] & 0b00000001;
+            printf("isTransparent: %i\n", isTransparent);
             transparentIndex = saved->ExtensionBlocks->Bytes[3];
             if (disposalMode == 3)
             {
-                isTransparent = prevSaved->ExtensionBlocks->Bytes[0] & 0b00000001;
-                transparentIndex = prevSaved->ExtensionBlocks->Bytes[3];
+                SavedImage* target = prevSaved->ExtensionBlockCount > 0 ? prevSaved : saved;
+                isTransparent = target->ExtensionBlocks->Bytes[0] & 0b00000001;
+                transparentIndex = target->ExtensionBlocks->Bytes[3];
             }
         }
         if (disposalMode == 0)
@@ -522,6 +536,7 @@ void create_multitexture_from_gif(ecs_world_t* s_world, GifFileType* gif, ecs_en
                     {
                         for (int col = 0; col < prevDesc->Width; col++)
                         {
+                            // Sometimes fails to load gif here
                             size_t globalIndex = (prevDesc->Left + col) + (prevDesc->Top + row) * gif->SWidth;
                             size_t index = col + row * prevDesc->Width;
                             int c = prevSaved->RasterBits[index];
@@ -580,8 +595,8 @@ void create_multitexture_from_gif(ecs_world_t* s_world, GifFileType* gif, ecs_en
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0.0, 0.0, gif->SWidth, gif->SHeight, GL_RGBA, GL_UNSIGNED_BYTE, (*firstFrame)->pixels);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-        glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR); // GL_NEAREST for pixel art
-        glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); //  for pixel art // GL_LINEAR_MIPMAP_LINEAR
+        glTexParameteri ( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         memmove(pixelBuffer2, pixelBuffer1, bufferSize);
         memmove(pixelBuffer1, pixelBuffer, bufferSize);
         shiftBufferCount += 2;
@@ -623,7 +638,8 @@ typedef struct
     vec2 size;
 } VisualSymbolCreated;
 
-VisualSymbolCreated load_visual_symbol(ecs_world_t* s_world, char* path, float x, float y, Anchor anchor)
+// TODO: This signature needs to be refactored to a single component :/
+VisualSymbolCreated load_visual_symbol(ecs_world_t* s_world, char* path, float x, float y, Anchor anchor, float scale)
 {
     ecs_entity_t node;
     VisualSymbolCreated vsc = {node, {0,0}};
@@ -683,7 +699,7 @@ VisualSymbolCreated load_visual_symbol(ecs_world_t* s_world, char* path, float x
             printf("Gif has %d images!\n" ,gif->ImageCount);
             SDL_Surface* firstFrame;
             create_multitexture_from_gif(s_world, gif, node, &firstFrame);
-            ecs_set(s_world, node, Texture2D, {NULL, nearest_pow2(gif->SWidth), nearest_pow2(gif->SHeight), gif->SWidth, gif->SHeight, {1.0, 1.0}, firstFrame});
+            ecs_set(s_world, node, Texture2D, {NULL, nearest_pow2(gif->SWidth), nearest_pow2(gif->SHeight), gif->SWidth, gif->SHeight, {scale, scale}, firstFrame});
             // printf("%d stbi frame count!\n", z);
             twidth = gif->SWidth; theight = gif->SHeight;
             if (gif->ImageCount > 1)
@@ -693,7 +709,7 @@ VisualSymbolCreated load_visual_symbol(ecs_world_t* s_world, char* path, float x
         } else
         {
             printf("Loading %s\n", path);
-            bool created = create_texture(s_world, path, node, &twidth, &theight);
+            bool created = create_texture(s_world, path, node, &twidth, &theight, scale);
             vsc.size[0] = twidth;
             vsc.size[1] = theight;
             if (!created) return vsc;
@@ -729,7 +745,7 @@ void LoadDroppedFiles(ecs_iter_t* it)
     float colIter = 0;
     for (int i = 0; i < drop->count; i++)
     {
-        VisualSymbolCreated vsc = load_visual_symbol(it->world, drop->paths[i], x + cursor_world_pos[0], y + cursor_world_pos[1], place);
+        VisualSymbolCreated vsc = load_visual_symbol(it->world, drop->paths[i], x + cursor_world_pos[0], y + cursor_world_pos[1], place, 1.0);
         printf("Create visual symbol\n");
         // ecs_get is not available right away, I would like to understand why this is more
         // const Texture2D* texture = ecs_get(it->world, entity, Texture2D);
@@ -853,6 +869,115 @@ void calc_view(Camera* camera)
     glm_translate(camera->targetView, pos2);
     vec3 scale2 = {camera->targetScale, camera->targetScale, 1.0};
     glm_scale(camera->targetView, scale2);
+}
+
+void CameraResetZoom(ecs_iter_t* it)
+{
+    EventKey* event = ecs_field(it, EventKey, 1);
+    Camera* camera = ecs_field(it, Camera, 2);
+
+    if (event->key == GLFW_KEY_SPACE && event->action == GLFW_PRESS)
+    {
+        Camera standard;
+        glm_vec2_copy(camera->pos, standard.pos);
+        standard.scale = 1.0f;
+        calc_view(&standard);
+        vec2 upperLeft =  {0.0f, 0.0f};
+        vec2 standardCameraWorldPos;
+        screen_to_world(standard.view, upperLeft, standardCameraWorldPos);
+        printf("Standard camera world pos is %f, %f\n", standardCameraWorldPos[0], standardCameraWorldPos[1]);
+        vec2 standardCameraScreenPos;
+        world_to_screen(standard.view, standardCameraWorldPos, standardCameraScreenPos);
+        printf("Standard camera screen pos is %f, %f\n", standardCameraScreenPos[0], standardCameraScreenPos[1]);
+        glm_vec2_copy(standardCameraScreenPos, camera->targetPos);
+        camera->targetScale = 1.0f;
+    }
+}
+
+void PackSymbols(ecs_iter_t* it)
+{
+    EventKey* event = ecs_field(it, EventKey, 1);
+    SelectionBounds* selection = ecs_field(it, SelectionBounds, 2);
+    Camera* camera = ecs_field(it, Camera, 3);
+
+    if (event->key == GLFW_KEY_P && event->action == GLFW_PRESS)
+    {
+        ecs_iter_t qIt = ecs_query_iter(it->world, (ecs_query_t*)it->ctx);
+        int s = 0;
+        int symbolCount = 0;
+        while (ecs_query_next(&qIt))
+        {
+            symbolCount += qIt.count;
+        }
+        if (symbolCount == 0) return;
+        qIt = ecs_query_iter(it->world, (ecs_query_t*)it->ctx);
+
+        stbrp_context* packCtx = malloc(sizeof(stbrp_context));
+        stbrp_node* nodes = malloc(sizeof(stbrp_node) * symbolCount);
+        stbrp_init_target(packCtx, selection->bounds[2] - selection->bounds[0], 4096, nodes, symbolCount);
+        stbrp_rect* rects = malloc(sizeof(stbrp_rect) * symbolCount);
+
+        int32_t si = 0;
+        while (ecs_query_next(&qIt))
+        {
+            Transform2D* transform = ecs_field(&qIt, Transform2D, 1);
+            Texture2D* texture = ecs_field(&qIt, Texture2D, 2);
+            TextureView* tv = ecs_field(&qIt, TextureView, 3);
+
+            printf("Symbol count is %i\n", symbolCount);
+
+            for (int32_t i = 0; i < qIt.count; i++)
+            {
+                if (ecs_has(it->world, qIt.entities[i], TextureView))
+                {
+                    rects[si].w = tv[i].bounds.max.x - tv[i].bounds.min.x;
+                    rects[si].h = tv[i].bounds.max.y - tv[i].bounds.min.y;
+                } else
+                {
+                    rects[si].w = texture[i].width;
+                    rects[si].h = texture[i].height;
+                }
+                rects[si].w /= texture[i].scale[0];
+                rects[si].h /= texture[i].scale[1];
+                si++;
+            }
+        }
+
+        stbrp_pack_rects(packCtx, rects, symbolCount);
+
+        qIt = ecs_query_iter(it->world, (ecs_query_t*)it->ctx);
+
+        si = 0;
+        while (ecs_query_next(&qIt))
+        {
+            Transform2D* transform = ecs_field(&qIt, Transform2D, 1);
+            Texture2D* texture = ecs_field(&qIt, Texture2D, 2);
+            TextureView* tv = ecs_field(&qIt, TextureView, 3);
+
+            for (int32_t i = 0; i < qIt.count; i++)
+            {
+                vec2 upperLeftSelection = {selection->bounds[0], selection->bounds[1]};
+                vec2 selectionWorldPos;
+                screen_to_world(camera->view, upperLeftSelection, selectionWorldPos);
+
+                if (rects[i].was_packed)
+                {
+                    transform[i].pos[0] = selectionWorldPos[0] + rects[si].x;
+                    transform[i].pos[1] = selectionWorldPos[1] +  rects[si].y;
+                    if (ecs_has(it->world, qIt.entities[i], TextureView))
+                    {
+                        transform[i].pos[0] -= tv[i].bounds.min.x/texture[i].scale[0];
+                        transform[i].pos[1] -= tv[i].bounds.min.y/texture[i].scale[1];
+                    }
+                }
+                si++;
+            }
+            
+        }
+
+        free(nodes);
+        free(rects);
+    }
 }
 
 void CameraCalculateView(ecs_iter_t* it)
@@ -1009,6 +1134,8 @@ void RenderPaintFrame(ecs_iter_t* it)
     PaintFrame* frame = ecs_field(it, PaintFrame, 4);
 
     NVGcolor modeColors[3] = {nvgRGBA(0, 255, 195,255), nvgRGBA(172,40,201,255), nvgRGBA(255,68,0,255)};
+
+    transform[0].pos[0] = imagesLoaded * 512.0f;
 
     // TODO: Function to world to screen multiple verts
     vec2 upperLeft = {transform->pos[0], transform->pos[1]};
@@ -1474,11 +1601,12 @@ void LoadPaintedImage(ecs_iter_t* it)
         if (should_load_image)
         {
             Anchor place = {0, 0};
-            load_visual_symbol(it->world, image_to_load_filepath, 0.0f, 0.0f, place);
-            // free(paintLoad->filepath);
-            // ecs_delete(it->world, it->entities[0]);
+            char* path = malloc(strlen(image_to_load_filepath)*sizeof(char));
+            strcpy(path, image_to_load_filepath);
+            VisualSymbolCreated vsc = load_visual_symbol(it->world, path, imagesLoaded * 512.0f, 0.0f, place, 1.0);
             should_load_image = false;
             is_creating_image = false;
+            imagesLoaded++;
         }
         pthread_mutex_unlock(&mutex_image_loader);
     }
@@ -1510,36 +1638,122 @@ void select_visual_symbol(ecs_world_t* world, ecs_entity_t* entity)
     ecs_add(world, entity, Selected);
 }
 
+char *get_filename(char *path) {
+    char *filename = strrchr(path, '/');
+    if (filename == NULL) {
+        return path;
+    }
+    return filename + 1;
+}
+
+char *get_filepath(char *path) {
+    char *filepath = strdup(path);
+    char *slash = strrchr(filepath, '/');
+    if (slash) {
+        *slash = '\0';
+    }
+    return filepath;
+}
+
 void SaveProjectShortcut(ecs_iter_t* it)
 {
     EventKey* event = ecs_field(it, EventKey, 1);
+    LoadedProjectStatus* loadedProject = ecs_field(it, LoadedProjectStatus, 2);
+    printf("%s\n", loadedProject->filepath);
     if (event->key == GLFW_KEY_S && event->mods & GLFW_MOD_CONTROL)
     {
-        printf("Save!\n");
-        // ecs_entity_t t = ecs_struct_init(it->world, &(ecs_struct_desc_t) {
-        //     .entity.name = "T",
-        //     .members = {
-        //         "path", {ecs_id(ecs_string_t)}
-        //     }
-        // });
-        ecs_query_t* query = ecs_query_new(world, "Transform2D, LocalFile");
-        ecs_iter_t qIt = ecs_query_iter(world, query);
-
+        ecs_iter_t qIt = ecs_query_iter(world, (ecs_query_t*)it->ctx);
+        
         size_t visualSymbolCount = 0;
+        const char *filename;
+        if (loadedProject)
+        {
+            char* name = get_filename(loadedProject->filepath);
+            char* p = get_filepath(loadedProject->filepath);
+            filename = loadedProject->filepath;
+        } else
+        {
+            sfd_Options opt = {
+            .title        = "Save Future",
+            .path         = ".",
+            .filter       = ".flit"
+            };
+            filename = sfd_save_dialog(&opt);
+        }
+        // Check if this is a valid name...
+        FILE* fp = fopen(filename, "w+");
         while (ecs_query_next(&qIt))
         {
             Transform2D* transform = ecs_field(&qIt, Transform2D, 1);
             LocalFile* file = ecs_field(&qIt, LocalFile, 2);
+            Texture2D* texture = ecs_field(&qIt, Texture2D, 3);
+            TextureView* tv = ecs_field(&qIt, TextureView, 4);
             for (int32_t i = 0; i < qIt.count; i++)
             {
+                // TODO: Integrate C JSON dep for more sophisticated sessions
                 printf("%s", file[i].path);
-                // LocalFile value = {"test"};
-                // char *expr = ecs_ptr_to_json(qIt.world, t, &file[i]);
-                // char* expr = ecs_ptr_to_json(qIt.world, ecs_id(LocalFile), &value);
-                // printf("%s\n", expr);
+                SymbolSaveData ssd;
+                ssd.filepath = file[i].path;
+                ssd.scale = texture[i].scale[0];
+                glm_vec2_copy(transform[i].pos, ssd.pos);
+                ssd.hasTextureView = ecs_has(qIt.world, qIt.entities[i], TextureView);
+                if (ssd.hasTextureView)
+                {
+                    memcpy(&ssd.textureView, &tv[i], sizeof(TextureView));
+                }
+                char* saveJson = ecs_ptr_to_json(it->world, ecs_id(SymbolSaveData), &ssd);
+                fputs(saveJson, fp);
+                fputs("\n", fp);
             }
         }
+        fclose(fp);
     }
+}
+
+void KeyboardShortcuts(ecs_iter_t* it)
+{
+    EventKey* event = ecs_field(it, EventKey, 1);
+    if (event->key == GLFW_KEY_O && event->action == GLFW_PRESS && event->mods & GLFW_MOD_CONTROL)
+    {
+        printf("Load project!\n");
+        ecs_set(it->world, input, EventLoadProject, {"save.flit"});
+        ecs_set_pair(it->world, input, ConsumeEvent, ecs_id(EventLoadProject), {});
+    }
+    // for (int32_t i = 0; i < it->count; i++)
+    // {
+    // }
+}
+
+void LoadProject(ecs_iter_t* it)
+{
+    EventLoadProject* event = ecs_field(it, EventLoadProject, 1);
+    printf("Load project\n");
+    sfd_Options opt = {
+    .title        = "Load Future",
+    .path         = ".",
+    .filter_name  = "Imagination",
+    .filter       = "*.flit|*.pur",
+    };
+    const char *filename = sfd_open_dialog(&opt);
+    ecs_set(it->world, project_state, LoadedProjectStatus, {filename});
+    FILE* fp = fopen(filename, "r");
+    size_t bufsize = 32;
+    char* line = malloc(bufsize * sizeof(char));
+    while (getline(&line, &bufsize, fp) >= 0)
+    {
+        SymbolSaveData saveData = {};
+        ecs_parse_json(it->world, line, ecs_id(SymbolSaveData), &saveData, NULL);
+        printf("%s\n", saveData.filepath);
+        Anchor temp = {0.0f, 0.0f};
+        VisualSymbolCreated vsc = load_visual_symbol(it->world, saveData.filepath, saveData.pos[0], saveData.pos[1], temp, saveData.scale);
+        if (saveData.hasTextureView)
+        {
+            c2AABB bounds;
+            memcpy(&bounds, saveData.textureView, sizeof(c2AABB));
+            ecs_set(it->world, vsc.node, TextureView, {bounds});
+        }
+    }
+    free(line);
 }
 
 void save_project_to_file(ecs_world_t* save_world, const char* save_file)
@@ -2042,6 +2256,28 @@ void register_components()
 
 }
 
+void IncrementalSnapCamera(ecs_iter_t* it)
+{
+    EventKey* event = ecs_field(it, EventKey, 1);
+    Camera* camera = ecs_field(it, Camera, 2);
+
+    if (event->action == GLFW_PRESS)
+    {
+        if (event->key == GLFW_KEY_1)
+        {
+            camera->targetScale = 1.0f;
+        }
+        else if (event->key == GLFW_KEY_2)
+        {
+            camera->targetScale = 2.0f;
+        }
+        else if (event->key == GLFW_KEY_3)
+        {
+            camera->targetScale = 3.0f;
+        }
+    }
+}
+
 void ScrollZoomCamera(ecs_iter_t* it)
 {
     Camera* camera = ecs_field(it, Camera, 1);
@@ -2177,7 +2413,9 @@ void RenderSelectionIndicators(ecs_iter_t* it)
     {
         nvgRect(nano->vg, selection->bounds[0], selection->bounds[1], selection->bounds[2] - selection->bounds[0], selection->bounds[3] - selection->bounds[1]);
     }
-    nvgStrokeColor(nano->vg, nvgRGBA(157, 3, 252,255));
+    // nvgStrokeColor(nano->vg, nvgRGBA(157, 3, 252,255));
+    nvgStrokeColor(nano->vg, nvgRGBA(92, 95, 86, 255));
+    nvgStrokeWidth(nano->vg, 2.0f);
     nvgStroke(nano->vg);
     // nvgFillColor(nano->vg, nvgRGBA(157, 3, 252,255));
     // nvgFill(nano->vg);
@@ -2216,7 +2454,7 @@ void ApparateVisualSymbols(ecs_iter_t* it)
         strcat(buf, next->d_name);
         printf("Path is %s\n", buf);
         Anchor place = {0, 0};
-        VisualSymbolCreated vsc = load_visual_symbol(it->world, buf, 0, 0, place);
+        VisualSymbolCreated vsc = load_visual_symbol(it->world, buf, 0, 0, place, 1.0f);
         if (ecs_is_valid(it->world, vsc.node))
         {
             test[symbol_count] = vsc.node;
@@ -2302,10 +2540,10 @@ int main(int argc, char const *argv[])
     world = ecs_init();
     ECS_COMPONENT_DEFINE(world, Camera);
     ECS_COMPONENT_DEFINE(world, CameraController);
-    ECS_COMPONENT_DEFINE(world, Transform2D);
+    // ECS_COMPONENT_DEFINE(world, Transform2D);
     ECS_COMPONENT_DEFINE(world, BatchSpriteRenderer);
     ECS_COMPONENT_DEFINE(world, Texture2D);
-    ECS_COMPONENT_DEFINE(world, LocalFile);
+    // ECS_COMPONENT_DEFINE(world, LocalFile);
     ECS_COMPONENT_DEFINE(world, MultiTexture2D);
     ECS_COMPONENT_DEFINE(world, GifAnimator);
     ECS_COMPONENT_DEFINE(world, ConsumeEvent);
@@ -2331,6 +2569,8 @@ int main(int argc, char const *argv[])
     ECS_COMPONENT_DEFINE(world, TextureView);
     ECS_COMPONENT_DEFINE(world, SelectionBounds);
     ECS_COMPONENT_DEFINE(world, Transform2DRef);
+    ECS_COMPONENT_DEFINE(world, EventLoadProject);
+    ECS_COMPONENT_DEFINE(world, LoadedProjectStatus);
     typedef enum SelectMode SelectMode;
     ECS_TAG_DEFINE(world, Selected);
     ECS_TAG_DEFINE(world, Grabbed);
@@ -2338,9 +2578,15 @@ int main(int argc, char const *argv[])
     ECS_TAG_DEFINE(world, TakeSnapshot);
     ECS_TAG_DEFINE(world, BrowseDirectory);
 
+    ECS_META_COMPONENT(world, LocalFile);
+    ECS_META_COMPONENT(world, Transform2D);
+    ECS_META_COMPONENT(world, SymbolSaveData);
+
     // ECS_IMPORT(world, InputModule);
     input = ecs_set_name(world, 0, "input");
     ecs_set(world, input, InteractionState, {STANDARD});
+
+    project_state = ecs_set_name(world, 0, "project_state");
 
     AI_painter = ecs_set_name(world, 0, "AI_painter");
     ecs_set(world, AI_painter, Transform2D, {0.0f, 0.0f});
@@ -2381,7 +2627,8 @@ int main(int argc, char const *argv[])
     glfwSetWindowSizeCallback(window, window_size_callback);
     glfwSetMouseButtonCallback(window, mouse_button_callback);
     glfwSetScrollCallback(window, scroll_callback);
-    glClearColor(32/255.0, 32/255.0, 32/255.0, 0.9);
+    // glClearColor(32/255.0, 32/255.0, 32/255.0, 0.9);
+    glClearColor(46/255.0, 60/255.0, 62/255.0, 1.0);
     center_window(window, glfwGetPrimaryMonitor());
     int width, height;
     glfwGetFramebufferSize(window, &width, &height);
@@ -2408,6 +2655,8 @@ int main(int argc, char const *argv[])
     //     ecs_set(world, nav_command, SavedData, {argv[1]});
     // }
 
+    ECS_SYSTEM(world, IncrementalSnapCamera, EcsPreFrame, EventKey(input), Camera(renderer));
+    ECS_SYSTEM(world, LoadProject, EcsOnUpdate, EventLoadProject, [inout]*());
     ECS_SYSTEM(world, ChangeInteractionOnKeyPress, EcsPreFrame, EventKey(input), InteractionState(input));
     ECS_SYSTEM(world, SavePaintFrameInput, EcsPreFrame, Transform2D, Texture2D, Camera(renderer), PaintFrame(AI_painter), EventSavePaintIntersection(AI_painter), Transform2D(AI_painter), [inout] *());
     ECS_SYSTEM(world, LoadPaintedImage, EcsPreFrame, [inout]*());
@@ -2444,7 +2693,16 @@ int main(int argc, char const *argv[])
         .ctx = vsq
     });
     ECS_SYSTEM(world, UndoCommand, EcsOnUpdate, EventKey(input));
-    ECS_SYSTEM(world, SaveProjectShortcut, EcsPostUpdate, EventKey(input), [inout] *());
+
+    ecs_query_t* lfr = ecs_query_new(world, "Transform2D, LocalFile, Texture2D, ?TextureView");
+    ecs_system(world, { 
+        .entity = ecs_entity(world, { .name = "SaveProjectShortcut", .add = { ecs_dependson(EcsPostUpdate) } }), 
+        .query.filter.expr = "EventKey(input), LoadedProjectStatus(project_state), [inout] *()", 
+        .callback = SaveProjectShortcut,
+        .ctx = lfr
+    }); 
+    // ECS_SYSTEM(world, SaveProjectShortcut, EcsPostUpdate, EventKey(input), [inout] *());
+
     ECS_SYSTEM(world, InterpolateCamera, EcsPostUpdate, Camera);
     ECS_SYSTEM(world, RenderImageName, EcsPostUpdate, NanoVG(renderer));
     ECS_SYSTEM(world, TypePaintPrompt, EcsPostUpdate, PaintFrame(AI_painter), EventCharEntry(input), [inout] *());
@@ -2455,6 +2713,12 @@ int main(int argc, char const *argv[])
         .entity = ecs_entity(world, { .name = "RenderSelectionIndicators", .add = { ecs_dependson(EcsPreFrame) } }), 
         .query.filter.expr = "NanoVG(renderer), Camera(renderer), SelectionBounds(input), [inout] *()", 
         .callback = RenderSelectionIndicators,
+        .ctx = svsq
+    });
+    ecs_system(world, {
+        .entity = ecs_entity(world, { .name = "PackSymbols", .add = { ecs_dependson(EcsOnUpdate) } }), 
+        .query.filter.expr = "EventKey(input), SelectionBounds(input), Camera(renderer)",
+        .callback = PackSymbols,
         .ctx = svsq
     });
     ECS_SYSTEM(world, AnchorPropagate, EcsPreFrame, SelectionBounds(parent), Transform2D, Anchor);
@@ -2489,6 +2753,8 @@ int main(int argc, char const *argv[])
     // ECS_SYSTEM(world, MouseAffectAction, EcsOnUpdate, EventMouseMotion(input), ActionOnMouseInput(input), Camera(renderer), SelectionBounds);
 
     ECS_SYSTEM(world, UpdatePromptFromSpeech, EcsOnUpdate, PaintFrame(AI_painter));
+    ECS_SYSTEM(world, CameraResetZoom, EcsOnUpdate, EventKey(input), Camera(renderer));
+    ECS_SYSTEM(world, KeyboardShortcuts, EcsPreFrame, EventKey, [inout] *());
 
     glfwShowWindow(window);
 

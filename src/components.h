@@ -29,14 +29,13 @@ typedef struct
 } Local2D;
 ECS_COMPONENT_DECLARE(Local2D);
 
-typedef struct
+ECS_STRUCT(Transform2D,
 {
-    vec2 pos;
+    float pos[2];
     float angle;
     float scale;
     int layer;
-} Transform2D;
-ECS_COMPONENT_DECLARE(Transform2D);
+});
 
 typedef struct
 {
@@ -69,11 +68,10 @@ typedef struct
 ECS_COMPONENT_DECLARE(TextureView);
 
 
-typedef struct
+ECS_STRUCT(LocalFile,
 {
-    const char* path;
-} LocalFile;
-ECS_COMPONENT_DECLARE(LocalFile);
+    char* path;
+});
 
 typedef struct
 {
@@ -220,6 +218,11 @@ typedef struct {
 } EventKey;
 ECS_COMPONENT_DECLARE(EventKey);
 
+ECS_STRUCT(EventLoadProject,
+{
+    char* savePath;
+});
+
 typedef struct {
     GLFWwindow* window;
     unsigned int codepoint;
@@ -278,3 +281,18 @@ typedef struct
     // TODO: Format?
 } SavedData;
 ECS_COMPONENT_DECLARE(SavedData);
+
+// Move all saved data to a single component
+ECS_STRUCT(SymbolSaveData,
+{
+    char* filepath;
+    float pos[2];
+    float scale;
+    bool hasTextureView;
+    float textureView[4];
+});
+
+ECS_STRUCT(LoadedProjectStatus,
+{
+    char* filepath;
+});

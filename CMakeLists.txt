@@ -54,7 +54,6 @@ include_directories("deps/flecs/include")
 include_directories("deps/gaul/src")
 include_directories("deps/gaul/util")
 
-
 # Embed Python for Stable Diffusion
 # https://docs.python.org/3/extending/embedding.html
 
